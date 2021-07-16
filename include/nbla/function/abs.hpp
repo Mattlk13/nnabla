@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,6 +39,7 @@ Outputs:
 @tparam T Data type for computation.
 \ingroup FunctionImplGrp
  */
-NBLA_DEFINE_TRANSFORM_UNARY(Abs, std::abs(x), (x < (T)0) ? -dy : dy, false);
+NBLA_DEFINE_TRANSFORM_UNARY(Abs, std::abs(x), (x < (T)0) ? -dy : dy, false,
+                            true);
 }
 #endif

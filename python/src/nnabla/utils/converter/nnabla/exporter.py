@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,6 +25,55 @@ import warnings
 warnings.simplefilter('ignore', category=FutureWarning)
 
 from nnabla.utils import nnabla_pb2
+from nnabla.logger import logger
+
+
+def rename_square_bracket(nnp):
+    def get_renamed(str):
+        ret_str = str.replace(']', '').replace('[', '_')
+        if ret_str != str:
+            logger.debug("{} --> {}".format(str, ret_str))
+        return ret_str
+
+    def get_renamed_list(func, field, field_name):
+        fields = [get_renamed(x) for x in field]
+        func.ClearField(field_name)
+        field.extend(fields)
+
+    def has_expanded():
+        expanded = True
+        for n in nnp.network:
+            if len(n.repeat_info) > 0:
+                expanded = False
+        return expanded
+
+    if not has_expanded():
+        return
+
+    # check the name of nnp.parameter
+    for param in nnp.parameter:
+        param.variable_name = get_renamed(param.variable_name)
+
+    # check the name of network
+    for n in nnp.network:
+        for v in n.variable:
+            v.name = get_renamed(v.name)
+        for f in n.function:
+            fields = [get_renamed(x) for x in f.input]
+            f.ClearField("input")
+            f.input.extend(fields)
+            fields = [get_renamed(x) for x in f.output]
+            f.ClearField("output")
+            f.output.extend(fields)
+
+    # check the name of optimizer
+    for o in nnp.optimizer:
+        for p in o.parameter_variable:
+            p.variable_name = get_renamed(p.variable_name)
+    # check the name of executor
+    for e in nnp.executor:
+        for e in e.parameter_variable:
+            e.variable_name = get_renamed(e.variable_name)
 
 
 class NnpExporter:
@@ -33,6 +82,10 @@ class NnpExporter:
         self._force = force
         self._nnp = nnp.protobuf
         self._other_files = nnp.other_files
+
+        # This has to be done to workaround sDeepConsolePrototype
+        # weird naming rule.
+        rename_square_bracket(self._nnp)
 
     def _write_nntxt(self, filename, nnp):
         with open(filename, 'w') as f:
@@ -57,7 +110,7 @@ class NnpExporter:
         with open('{}/nnp_version.txt'.format(outdir), 'w') as f:
             f.write('0.1\n')
         if self._parameter_type == 'included':
-            self.write_nntxt('{}/network.nntxt'.format(outdir), self._nnp)
+            self._write_nntxt('{}/network.nntxt'.format(outdir), self._nnp)
         else:
             nnp_wo_parameter = nnabla_pb2.NNablaProtoBuf()
             nnp_wo_parameter.CopyFrom(self._nnp)

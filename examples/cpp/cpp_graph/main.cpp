@@ -1,3 +1,16 @@
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 // -*- coding:utf-8 -*-
 
 #include <nbla/computation_graph/computation_graph.hpp>
@@ -29,11 +42,11 @@ int main() {
   Context ctx; // ("cpu", "CpuArray", "0", "default");
   auto affine1 = make_shared<CgFunction>(create_Affine(ctx, 1));
   auto bn1 = make_shared<CgFunction>(
-      create_BatchNormalization(ctx, {1}, 0, 0.0, false));
+      create_BatchNormalization(ctx, {1}, 0, 0.0, false, false, false));
   auto relu1 = make_shared<CgFunction>(create_ReLU(ctx, true));
   auto affine2 = make_shared<CgFunction>(create_Affine(ctx, 1));
   auto bn2 = make_shared<CgFunction>(
-      create_BatchNormalization(ctx, {1}, 0, 0.0, false));
+      create_BatchNormalization(ctx, {1}, 0, 0.0, false, false, false));
   auto relu2 = make_shared<CgFunction>(create_ReLU(ctx, true));
   auto affine3 = make_shared<CgFunction>(create_Affine(ctx, 1));
 

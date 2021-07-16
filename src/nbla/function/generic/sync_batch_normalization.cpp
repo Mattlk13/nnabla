@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,7 +39,8 @@ void SyncBatchNormalization<T>::setup_impl(const Variables &inputs,
 
 template <class T>
 void SyncBatchNormalization<T>::forward_impl_batch(const Variables &inputs,
-                                                   const Variables &outputs) {
+                                                   const Variables &outputs,
+                                                   const bool update_inputs) {
   // Check whether it outputs batch mean and var.
   Variable *batch_mean = &this->mean_;
   Variable *batch_var = &this->var_;
@@ -95,9 +97,11 @@ void SyncBatchNormalization<T>::forward_impl_batch(const Variables &inputs,
 
     auto n = this->size02_ * this->num_processes_;
     // Moving mean and var
-    rm[i1] = this->decay_rate_ * rm[i1] + (1 - this->decay_rate_) * m[i1];
-    rv[i1] = this->decay_rate_ * rv[i1] +
-             (1 - this->decay_rate_) * v[i1] * n / (n - 1);
+    if (update_inputs) {
+      rm[i1] = this->decay_rate_ * rm[i1] + (1 - this->decay_rate_) * m[i1];
+      rv[i1] = this->decay_rate_ * rv[i1] +
+               (1 - this->decay_rate_) * v[i1] * n / (n - 1);
+    }
 
     // v[i1] = 1 / std::sqrt(v[i1] + (T)eps_);
     // Subtract mean and divide by std, and apply beta and gamma.

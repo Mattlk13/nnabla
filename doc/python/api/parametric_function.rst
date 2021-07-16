@@ -70,6 +70,7 @@ Here is the list of parametric functions.
 .. autofunction:: depthwise_convolution
 .. autofunction:: deconvolution
 .. autofunction:: depthwise_deconvolution
+.. autofunction:: deformable_convolution
 .. autofunction:: batch_normalization
 .. autofunction:: fused_batch_normalization
 .. autofunction:: sync_batch_normalization
@@ -147,6 +148,10 @@ listed below.
 
 .. autoclass:: OrthogonalInitializer
     :show-inheritance:
+
+.. autoclass:: WeightNormalizationScaleInitializer
+    :show-inheritance:
+
 
 .. autofunction:: calc_normal_std_he_forward
 .. autofunction:: calc_normal_std_he_backward

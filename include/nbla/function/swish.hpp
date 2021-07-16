@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -48,6 +49,6 @@ https://arxiv.org/abs/1710.05941
 NBLA_DEFINE_TRANSFORM_UNARY(Swish, x / ((T)1 + std::exp(-x)),
                             dy *(y +
                                  ((T)1 / ((T)1 + std::exp(-x))) * ((T)1 - y)),
-                            true);
+                            true, true);
 }
 #endif

@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 import time
 from datetime import datetime, timedelta
 import nnabla.utils.callback as callback
-from nnabla.utils.cli.utility import cg_load_backend_ok
+from nnabla.utils.cli.utility import cpu_load_backend_ok
 from nnabla import logger
 
 
@@ -60,7 +60,7 @@ def progress(state, progress=0.0):
                         raise
                     time.sleep(0.1)
     callback.update_progress('{0} ({1:3.2f}%)'.format(state, progress * 100))
-    if cg_load_backend_ok:
+    if cpu_load_backend_ok:
         callback.update_status()
     if state_callback is not None:
         state_callback(state, progress)

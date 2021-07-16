@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -201,12 +201,12 @@ LSTM<T>::lstm_cell(shared_ptr<CgVariable> x, shared_ptr<CgVariable> h,
   }
 
   auto sigmoid1 = make_shared<CgFunction>(create_Sigmoid(this->ctx_));
-  auto mul1 = make_shared<CgFunction>(create_Mul2(this->ctx_));
+  auto mul1 = make_shared<CgFunction>(create_Mul2(this->ctx_, false));
   auto tmp1 =
       connect(mul1, {connect(sigmoid1, f_t, 1)[0], c}, 1); // F.sigmoid(f_t) * c
 
   auto sigmoid2 = make_shared<CgFunction>(create_Sigmoid(this->ctx_));
-  auto mul2 = make_shared<CgFunction>(create_Mul2(this->ctx_));
+  auto mul2 = make_shared<CgFunction>(create_Mul2(this->ctx_, false));
   auto tanh2 = make_shared<CgFunction>(create_Tanh(this->ctx_));
   auto add2 = make_shared<CgFunction>(create_Add2(this->ctx_, true));
   auto tmp2 =
@@ -216,7 +216,7 @@ LSTM<T>::lstm_cell(shared_ptr<CgVariable> x, shared_ptr<CgVariable> h,
   auto c_t = connect(add2, {tmp1[0], tmp2[0]}, 1);
 
   auto sigmoid3 = make_shared<CgFunction>(create_Sigmoid(this->ctx_));
-  auto mul3 = make_shared<CgFunction>(create_Mul2(this->ctx_));
+  auto mul3 = make_shared<CgFunction>(create_Mul2(this->ctx_, false));
   auto tanh3 = make_shared<CgFunction>(create_Tanh(this->ctx_));
   auto h_t =
       connect(mul3, {connect(sigmoid3, o_t, 1)[0], connect(tanh3, c_t, 1)[0]},
@@ -263,7 +263,7 @@ vector<vector<CgVariablePtr>> LSTM<T>::create_fixed_length_lstm_graph(
           cg_utils::get_item_nd(this->ctx_, in_b, vector<int>{i, 0}); // b[i, 0]
     }
 
-    for (int k = 0; k < xs.size(); k++) {
+    for (vector<CgVariablePtr>::size_type k = 0; k < xs.size(); k++) {
       auto tmp = lstm_cell(xs[k], hf_var, cf_var, wf_var, bf_var);
       hf_var = (tmp[0])[0];
       cf_var = (tmp[1])[0];
@@ -290,7 +290,7 @@ vector<vector<CgVariablePtr>> LSTM<T>::create_fixed_length_lstm_graph(
     if (xs.size() > 1) {
       std::reverse(std::begin(xs), std::end(xs));
     }
-    for (int k = 0; k < xs.size(); k++) {
+    for (vector<CgVariablePtr>::size_type k = 0; k < xs.size(); k++) {
       int j = xs.size() - 1 - k;
       auto tmp = lstm_cell(xs[k], hb_var, cb_var, wb_var, bb_var);
       hb_var = (tmp[0])[0];

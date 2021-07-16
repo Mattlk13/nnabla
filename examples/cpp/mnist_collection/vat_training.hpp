@@ -1,10 +1,11 @@
-// Copyright (c) 2019 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -135,8 +136,10 @@ bool vat_training_with_static_graph(nbla::Context ctx) {
 
   auto noise =
       make_shared<CgVariable>(Shape_t({batch_size_u, 1, 28, 28}), true);
-  auto r = noise / f::pow_scalar(
-                       (f::sum(f::pow_scalar(noise, 2), {1, 2, 3}, true)), 0.5);
+  auto r =
+      noise /
+      f::pow_scalar((f::sum(f::pow_scalar(noise, 2, false), {1, 2, 3}, true)),
+                    0.5, false);
   r->set_persistent(true);
   auto y2 = mlp_net(xu + xi * r, n_h, n_y, params, false);
   auto y3 = mlp_net(xu + eps * r, n_h, n_y, params, false);
@@ -344,9 +347,9 @@ bool vat_training_with_dynamic_graph(nbla::Context ctx) {
           noise->variable()->cast_data_and_get_pointer<float_t>(cpu_ctx, true);
       for (int i = 0; i < noise->variable()->size(); i++, n_d++)
         *n_d = normal(engine);
-      auto r = noise /
-               f::pow_scalar((f::sum(f::pow_scalar(noise, 2), {1, 2, 3}, true)),
-                             0.5);
+      auto r = noise / f::pow_scalar((f::sum(f::pow_scalar(noise, 2, false),
+                                             {1, 2, 3}, true)),
+                                     0.5, false);
       r->set_persistent(true);
 
       for (int k = 0; k < max_iter_power_method; k++) {
@@ -366,7 +369,8 @@ bool vat_training_with_dynamic_graph(nbla::Context ctx) {
 
       // Updating with virtual adversarial noise
       r = noise / f::pow_scalar(
-                      (f::sum(f::pow_scalar(noise, 2), {1, 2, 3}, true)), 0.5);
+                      (f::sum(f::pow_scalar(noise, 2, false), {1, 2, 3}, true)),
+                      0.5, false);
       auto y3 = mlp_net(xu + eps * r, n_h, n_y, params, false);
       auto loss_u = f::mean(distance(y1, y3), {0}, false);
       solver->set_parameters(params.get_parameters(),

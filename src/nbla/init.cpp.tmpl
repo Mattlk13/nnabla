@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,8 +21,11 @@
 
 #include <nbla/cpu.hpp>
 #include <nbla/array_registry.hpp>
+#include <nbla/utils/dlpack_array_registry.hpp>
 #include <nbla/array/cpu_array.hpp>
+#include <nbla/array/cpu_dlpack_array.hpp>
 #include <nbla/function_registry.hpp>
+#include <nbla/backend_registry.hpp>
 % for name, snake_name, _ in function_list:
 % if name in function_types:
 #include <nbla/function/${snake_name}.hpp>
@@ -36,9 +39,15 @@
 
 namespace nbla {
 void init_cpu() {
-  static bool is_initialized = false;
+  static volatile bool is_initialized = false;
   if (is_initialized)
     return;
+  // No branch after this, hence, we should
+  // put it here to prevent re-enter.
+  is_initialized = true;
+
+  // Backend registration
+  NBLA_REGISTER_BACKEND("cpu", []() { return SingletonManager::get<Cpu>(); });
 
   // Array registration
   NBLA_REGISTER_ARRAY_CREATOR(CpuArray);
@@ -49,7 +58,22 @@ void init_cpu() {
                                    synchronizer_default);
   NBLA_REGISTER_ARRAY_SYNCHRONIZER(CpuCachedArray, CpuArray,
                                    synchronizer_default);
+  NBLA_REGISTER_ARRAY_CREATOR(CpuDlpackArray);
+  SingletonManager::get<Cpu>()->register_array_class("CpuDlpackArray");
+  NBLA_REGISTER_DLPACK_DEVICE_TYPE_TO_CONTEXT(kDLCPU, cpu, CpuDlpackArray);
+  NBLA_REGISTER_ARRAY_TO_DLPACK_DEVICE_TYPE(CpuArray, kDLCPU);
+  NBLA_REGISTER_ARRAY_TO_DLPACK_DEVICE_TYPE(CpuCachedArray, kDLCPU);
+  // It is not necessary that DlpackArray is converted from other arrays.
+  NBLA_REGISTER_ARRAY_SYNCHRONIZER(CpuDlpackArray, CpuArray,
+                                   synchronizer_default);
+  NBLA_REGISTER_ARRAY_SYNCHRONIZER(CpuDlpackArray, CpuCachedArray,
+                                   synchronizer_default);
 
+  // Array group registration
+  NBLA_REGISTER_ARRAY_GROUP(CpuArray, cpu);
+  NBLA_REGISTER_ARRAY_GROUP(CpuCachedArray, cpu);
+  NBLA_REGISTER_ARRAY_GROUP(CpuDlpackArray, cpu);
+  
   // Function registration
 % for name, _, arg_types in function_list:
   % for type_config, ttypes in function_types.get(name, {}).items():
@@ -78,11 +102,14 @@ void init_cpu() {
   %endfor  
 % endfor
 
-  is_initialized = true;
 }
 
 void clear_cpu_memory_cache() {
   SingletonManager::get<Cpu>()->caching_allocator()->free_unused_caches();
+}
+
+void print_cpu_memory_cache_map() {
+  SingletonManager::get<Cpu>()->caching_allocator()->print_memory_cache_map();
 }
 
 /** Get CPU array classes.

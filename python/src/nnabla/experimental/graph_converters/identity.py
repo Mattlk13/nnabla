@@ -1,93 +1,80 @@
+# Copyright 2018,2019,2020,2021 Sony Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import nnabla as nn
 import nnabla.functions as F
-import nnabla.parametric_functions as PF
+import numpy as np
 
-from .helpers import GraphInfo
+from nnabla.parameter import get_parameter_or_create
+from nnabla.initializer import ConstantInitializer
+
+from .graph_converter import FunctionModifier
 
 
-class IdentityConverter(object):
+class IdentityModifier(FunctionModifier):
     """
-    All functions are replaced with the same `new` function.
+    All functions are replaced to the same `new` function.
 
     Args:
-        black_list (list): Black list of the function list.
-        params (:obj:`OrderedDict`): Result of nn.get_parameters().
-        name (:obj:`str`): Prefix of the parameter scope.
+        inputs (:obj: `dict`): Input variable mapping from the original input to another input. Default is the empty dictionary, so the new graph shares the original inputs.
 
+    Examples:
+
+    .. code-block:: python
+
+       pred = Model(...)
+       x = nn.Variable(...)
+
+       import nnabla.experimental.graph_converters as GC
+
+       modifiers = [GC.IdentityModifier({x0: x1})]
+       gc = GC.GraphConverter(modifiers)
+       pred = gc.convert(pred)
     """
 
-    def __init__(self, black_list=[], params=None, name="identity"):
-        self.graph_info = None
-        self.entry_variables = None
+    def __init__(self, inputs={}, copy_value=False):
+        super(IdentityModifier, self).__init__()
+        self._input_dict = inputs
+        self._copy_value = copy_value
 
-        self.black_list = black_list
-        self.params = params if params is not None else nn.get_parameters(
-            grad_only=False)
-        self.name = name
+    def modify(self, f, inputs):
+        # Replace only the initial inputs
+        if inputs[0].parent:
+            return
 
-        self.end_variable = None
-        self.outputs = []
-        # output of ref graph to output of new graph (TODO: change name)
-        self.input_map = {}
+        # Check if replacement dict empty
+        if not self._input_dict:
+            return
 
-    def convert(self, vroot, entry_variables):
-        """
-        All functions are replaced with the same `new` function.
+        if f.inputs[0] in self._input_dict:
+            inp_repl = self._input_dict[f.inputs[0]]
+            if not self._copy_value:
+                inps = inp_repl
+            else:
+                if inp_repl.shape != f.inputs[0].shape:
+                    raise ValueError("Shape between the replaced input ({}) and original input ({}) differs when copy_value=True".format(
+                        inp_repl.shape, f.inputs[0].shape))
+                inp_repl.d = f.inputs[0].d.copy()
+                inp_repl.g = f.inputs[0].g.copy()
+            inps = [inp_repl] + inputs[1:]
 
-        Args:
-            vroot (:obj:`Variable`): NNabla Variable
-            entry_variables (:obj:`Variable`): Entry variable from which the conversion starts.
-        """
-        self.graph_info = GraphInfo(vroot)
-        self.entry_variables = entry_variables
+            self.init_map_func_inputs(f, inps)
 
-        with nn.parameter_scope(self.name):
-            # Function loop in the forward order
-            for func in self.graph_info.funcs:
-                o = self._identity_conversion(func)
-            self.end_variable = o
-        return self.end_variable
+            o = self._call_function(
+                f.info.type_name, inps, f.info.args)
+            return o
 
-    def _call_function(self, type_name, inputs, args):
-        import nnabla.function_bases as FB
-        function_expr = "FB.F.{type_name}(nn.{ctx}, **{args})".format(
-            type_name=type_name,
-            ctx=nn.get_current_context(),
-            args=args)
-        function = eval(function_expr)
-        o = function(*inputs)
-        return o
-
-    def _identity_conversion(self, func):
-        import nnabla.function_bases as FB
-        inputs = []
-
-        # Inputs conversion
-        for i in func.inputs:
-            if i in self.entry_variables:    # entry input given by user
-                idx = self.entry_variables.index(i)
-                inputs.append(self.entry_variables[idx])
-            elif i in self.input_map:        # new input
-                inputs.append(self.input_map[i])
-            elif i in self.params.values():  # parameter input
-                idx = list(self.params.values()).index(i)
-                name = list(self.params.keys())[idx]
-                i = nn.parameter.get_parameter_or_create(name,
-                                                         i.shape,
-                                                         i.d,
-                                                         i.need_grad)
-                inputs.append(i)
-            else:                            # old inputs shared by the reference graph
-                inputs.append(i)
-
-        # Function Call
-        o = self._call_function(func.info.type_name, inputs, func.info.args)
-
-        # Map output of ref graph to output of new graph
-        x = func.outputs[0]
-        self.input_map[x] = o
-
-        # Store output (just in case)
-        self.outputs.append(o)
-
-        return o
+    def __finish__(self):
+        self._input_dict = None
+        self._copy_value = False

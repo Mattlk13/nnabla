@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,8 +30,9 @@ ctxs = list_context('RandomShift')
 @pytest.mark.parametrize("seed", [313])
 @pytest.mark.parametrize("inshape", [(7, 8, 9)])
 @pytest.mark.parametrize("shifts", [None, (0, 0, 2,), (0, 2, 0), (0, 2, 2)])
-@pytest.mark.parametrize("border_mode", ["nearest", "reflect"])
-def test_random_shift_forward_backward(seed, inshape, shifts, border_mode, ctx, func_name):
+@pytest.mark.parametrize("border_mode", ["nearest", "reflect", "constant"])
+@pytest.mark.parametrize("constant_value", [0, -100])
+def test_random_shift_forward_backward(seed, inshape, shifts, border_mode, constant_value, ctx, func_name):
     from nbla_test_utils import function_tester
     rng = np.random.RandomState(seed)
     inputs = [rng.randn(*inshape).astype(np.float32)]
@@ -38,16 +40,18 @@ def test_random_shift_forward_backward(seed, inshape, shifts, border_mode, ctx, 
     i.d = inputs[0]
     # NNabla forward
     with nn.context_scope(ctx), nn.auto_forward():
-        o = F.random_shift(i, shifts, border_mode, 0, seed)
+        o = F.random_shift(i, shifts, border_mode, constant_value, 0, seed)
     result_shifts = (0, 0, 0)
     max_correl = 0
     for shift_amount in itertools.product(*map(tuple, map(lambda x: range(*x), [(-2, 3) for _ in range(len(inshape))]))):
-        r = scipy_shift(inputs[0], shift_amount, mode=border_mode)
+        r = scipy_shift(inputs[0], shift_amount,
+                        mode=border_mode, cval=constant_value)
         correl_and_p = pearsonr(o.d.flatten(), r.flatten())
         if correl_and_p[0] > max_correl:
             result_shifts = shift_amount
             max_correl = correl_and_p[0]
-    ref = scipy_shift(inputs[0], result_shifts, mode=border_mode)
+    ref = scipy_shift(inputs[0], result_shifts,
+                      mode=border_mode, cval=constant_value)
     if shifts is None:
         shifts = (0,) * len(inputs[0].shape)
     for result, shift_range in zip(result_shifts, shifts):
@@ -81,3 +85,21 @@ def test_random_shift_forward_backward(seed, inshape, shifts, border_mode, ctx, 
     o_grad = rng.randn(*i.shape).astype(i.data.dtype)
     o.backward(o_grad)
     assert np.all(i.g == 0)
+
+
+@pytest.mark.parametrize("ctx, func_name", ctxs)
+@pytest.mark.parametrize("seed", [313])
+@pytest.mark.parametrize("inshape", [(7, 8, 9)])
+@pytest.mark.parametrize("shifts", [None, (0, 0, 2,), (0, 2, 0), (0, 2, 2)])
+@pytest.mark.parametrize("border_mode", ["nearest", "reflect", "constant"])
+@pytest.mark.parametrize("constant_value", [0, -100])
+@pytest.mark.parametrize("func_seed", [-1, 412])
+def test_random_shift_recomputation(seed, inshape, shifts, border_mode, constant_value, func_seed, ctx, func_name):
+    from nbla_test_utils import recomputation_test
+    rng = np.random.RandomState(seed)
+    vinputs = [nn.Variable(inshape)]
+
+    base_axis = 0
+    func_args = [shifts, border_mode, constant_value, base_axis, func_seed]
+    recomputation_test(rng=rng, func=F.random_shift, vinputs=vinputs,
+                       func_args=func_args, func_kwargs={}, ctx=ctx)

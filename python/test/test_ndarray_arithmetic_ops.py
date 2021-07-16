@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -47,8 +48,20 @@ def test_ndarray_arithmetic_ops2(seed, op, x_var, y_var, shape):
 
     # Inplace test
     vx_bak = vx
-    exec_("vx {0}= vy".format(op))
+    if op == '+':
+        vx += vy
+    elif op == '-':
+        vx -= vy
+    elif op == '*':
+        vx *= vy
+    elif op == '/':
+        vx /= vy
+    elif op == '**':
+        vx **= vy
     assert_allclose(vx.data, vz.data)
+    if op == '*' or op == '/' or op == '**':
+        # In-placing for `*`, `/` and `**` is obsoleted.
+        return
     assert vx is vx_bak
 
 
@@ -67,8 +80,20 @@ def test_ndarray_arithmetic_scalar_ops(seed, op, shape):
 
     # Inplace test
     vx_bak = vx
-    exec_("vx {0}= a".format(op))
+    if op == '+':
+        vx += a
+    elif op == '-':
+        vx -= a
+    elif op == '*':
+        vx *= a
+    elif op == '/':
+        vx /= a
+    elif op == '**':
+        vx **= a
     assert_allclose(vx.data, vz.data)
+    if op == "**":
+        # In-placing for `**` is obsoleted.
+        return
     assert vx is vx_bak
 
 

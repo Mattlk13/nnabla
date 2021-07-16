@@ -1,10 +1,11 @@
-// Copyright (c) 2018 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -54,8 +55,12 @@ ParameterDirectory::ParameterDirectory()
       ordered_keys_(make_shared<vector<string>>()) {}
 
 ParameterDirectory ParameterDirectory::operator[](string name) {
-  auto new_scope_path = name;
-  return ParameterDirectory(new_scope_path, param_dict_, ordered_keys_);
+  string param_path;
+  if (!scope_path_.empty())
+    param_path = scope_path_ + "/" + name;
+  else
+    param_path = name;
+  return ParameterDirectory(param_path, param_dict_, ordered_keys_);
 }
 
 vector<pair<string, VariablePtr>> ParameterDirectory::get_parameters() {
@@ -126,6 +131,38 @@ ParameterDirectory::get_parameter_or_create(string name, Shape_t shape,
   ordered_keys_->push_back(param_path);
 
   return parameter;
+}
+
+CgVariablePtr ParameterDirectory::get_parameter_or_create(string name,
+                                                          CgVariablePtr cg_v) {
+  // Parameter name.
+  string param_path;
+
+  if (!scope_path_.empty())
+    param_path = scope_path_ + "/" + name;
+  else
+    param_path = name;
+
+  // Search exist one.
+  auto it = param_dict_->find(param_path);
+  if (it != param_dict_->end()) {
+    NBLA_CHECK(
+        cg_v->variable()->shape() == it->second->variable()->shape(),
+        error_code::value,
+        "Parameter \"%s\" already exists but the shape of the variable you "
+        "passed is mismatch."
+        "the shape of existed paremeter: (%s) != the shape you passed: (%s).",
+        param_path.c_str(),
+        string_join(it->second->variable()->shape(), ", ").c_str(),
+        string_join(cg_v->variable()->shape(), ", ").c_str());
+
+    return it->second;
+  }
+
+  param_dict_->insert({param_path, cg_v});
+  ordered_keys_->push_back(param_path);
+
+  return cg_v;
 }
 
 ParameterDirectory ParameterDirectory::create_deep_copy() {
@@ -319,7 +356,7 @@ vector<CgVariablePtr> affine(Context &ctx, CgVariablePtr x, int base_axis,
 
   Shape_t shape_x = x->variable()->shape();
   long int n_in = 1;
-  for (int i = base_axis; i < shape_x.size(); i++)
+  for (unsigned int i = base_axis; i < shape_x.size(); i++)
     n_in *= shape_x[i];
 
   if (w_init == nullptr) {
@@ -515,7 +552,7 @@ batch_normalization(Context &ctx, CgVariablePtr x, const vector<int> &axes,
 
   NBLA_CHECK(axes.size() == 1, error_code::value, "Size of axes should be 1");
   Shape_t shape_stat = x->variable()->shape();
-  for (int i = 0; i < shape_stat.size(); i++)
+  for (int i = 0; static_cast<unsigned>(i) < shape_stat.size(); i++)
     if (i != axes[0])
       shape_stat[i] = 1;
 
@@ -536,7 +573,8 @@ batch_normalization(Context &ctx, CgVariablePtr x, const vector<int> &axes,
   bool execute_forward =
       SingletonManager::get<AutoForward>()->get_auto_forward();
   return connect(make_shared<CgFunction>(create_BatchNormalization(
-                     ctx, axes, decay_rate, eps, batch_stat)),
+                     ctx, axes, decay_rate, eps, batch_stat,
+                     false /* no_scale */, false /* no_bias */)),
                  {x, beta, gamma, mean, variance}, 1, {}, execute_forward);
 }
 

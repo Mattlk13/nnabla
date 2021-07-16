@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +15,12 @@
 
 import numpy as np
 from . import random
+
+# Use it like "random_float_type(x)", not ".astype(random_float_type)"
+# because this manner is applicable to both numpy.array and 0-dimensional
+# numpy.array (or Python scalar) which appears when Initializer takes shape=(),
+# for example self.rng.randn(*shape) where shape = ().
+random_float_type = np.float32
 
 
 class BaseInitializer(object):
@@ -74,7 +81,7 @@ class NormalInitializer(BaseInitializer):
                                self.sigma)
 
     def __call__(self, shape):
-        return self.rng.randn(*shape) * self.sigma
+        return random_float_type(self.rng.randn(*shape) * self.sigma)
 
 
 class UniformInitializer(BaseInitializer):
@@ -113,7 +120,8 @@ class UniformInitializer(BaseInitializer):
                                repr(self.lim))
 
     def __call__(self, shape):
-        return self.rng.uniform(self.lim[0], self.lim[1], size=shape)
+        return random_float_type(self.rng.uniform(self.lim[0], self.lim[1],
+                                                  size=shape))
 
 
 class UniformIntInitializer(BaseInitializer):
@@ -211,7 +219,7 @@ class ConstantInitializer(BaseInitializer):
         self.value = value
 
     def __call__(self, shape):
-        return np.ones(shape) * self.value
+        return random_float_type(np.ones(shape) * self.value)
 
 
 class OrthogonalInitializer(BaseInitializer):
@@ -257,7 +265,33 @@ class OrthogonalInitializer(BaseInitializer):
         x = self.rng.normal(0.0, 1.0, flat_shape)
         u, _, v = np.linalg.svd(x, full_matrices=False)
         q = u if u.shape == flat_shape else v
-        return q.reshape(shape).astype('float32') * self.gain
+        return random_float_type(q.reshape(shape) * self.gain)
+
+
+class WeightNormalizationScaleInitializer(BaseInitializer):
+
+    r"""Compute the L2-norm for each weight kernel.
+
+    This initializer is specific to the weight normalization scale to keep the same magnitude of the originally initialized weights even after the applicaiton of the weight normalization at only initialization.
+
+    Args:
+        w (:obj:`Variable`): Weight the weight normalization is applied.
+        dim (:obj:`int`): Output dimension of the weight normalization.
+        eps (:obj:`float`): Eplision of the weight normalization.
+    """
+
+    def __init__(self, w, dim=0, eps=1e-12):
+        self.w = w.get_unlinked_variable()
+        self.dim = dim
+        self.eps = eps
+
+    def __repr__(self):
+        return '{}({})'.format(self.__class__.__name__)
+
+    def __call__(self, shape):
+        axis = tuple([a for a in range(len(self.w.shape)) if a != self.dim])
+        w_norm_data = np.sqrt(np.sum(self.w.d ** 2, axis=axis) + self.eps)
+        return random_float_type(w_norm_data)
 
 
 def calc_normal_std_he_forward(inmaps, outmaps, kernel=(1, 1)):

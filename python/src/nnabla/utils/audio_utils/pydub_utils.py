@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,14 +44,14 @@ def get_audiosegment_from_nparray(nparr, frame_rate=48000):
     return audio_segment
 
 
-def auread(path, channel_first=False, raw_format_param=None):
+def auread(source, channel_first=False, raw_format_param=None):
     """
     Read audio with pydub module.
+    Currently only support .wav format audio, .raw format audio could be read only when
+    additional params are provided.
 
     Args:
-        path (str or 'file object'): File path or object to read from.
-            Currently only support .wav format audio, .raw format audio could be read only when
-            additional params are provided.
+        source (class ResourceFileReader): source handler.
         channel_first (bool):
             This argument specifies the shape of audio is whether (samples, channels) or (channels, samples).
             Default value is False, which means the audio shape shall be (samples, channels).
@@ -62,15 +63,15 @@ def auread(path, channel_first=False, raw_format_param=None):
          numpy.ndarray
     """
 
-    _auread_before(path, raw_format_param)
+    _auread_before(source, raw_format_param)
 
-    filepath = path if isinstance(path, str) else path.name
-    audio_format = os.path.splitext(filepath)[-1][1:]
-    if audio_format == 'raw':
-        audio = AudioSegment.from_file(
-            path, format=audio_format, **raw_format_param)
-    else:
-        audio = AudioSegment.from_file(path, format=audio_format)
+    audio_format = source.ext[1:]
+    with source.open() as f:
+        if audio_format == 'raw':
+            audio = AudioSegment.from_file(
+                f, format=audio_format, **raw_format_param)
+        else:
+            audio = AudioSegment.from_file(f, format=audio_format)
 
     audio_arr = get_nparray_from_pydub(audio)
     if audio_arr.dtype.itemsize == 1 and audio_format == 'wav':

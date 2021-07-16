@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -111,7 +112,12 @@ public:
   virtual string name() { return "FusedBatchNormalization"; }
   virtual bool grad_depends_output_data(int i, int o) const {
     // Gradient computation always requires output mean and var.
-    return o > 0;
+    // If nonlinearity is relu, then y is also needed.
+    if (nonlinearity_ == "relu") {
+      return o >= 0;
+    } else {
+      return o > 0;
+    }
   }
 
 protected:
@@ -123,5 +129,37 @@ protected:
                                       const Variables &outputs,
                                       const vector<bool> &propagate_down,
                                       const vector<bool> &accum);
+  NBLA_API virtual void recompute_impl(const Variables &inputs,
+                                       const Variables &outputs);
+  virtual bool grad_depends_input_data_impl(int i, int j) const {
+    if (batch_stat_) { // Training mode.
+      if (i == 0) {
+        if (j == 0 || j == 2)
+          return true;
+      }
+      if (i == 2) {
+        if (j == 0)
+          return true;
+      }
+      return false;
+
+    } else { // Testing mode.
+      if (i == 0) {
+        if (j == 2 || j == 4)
+          return true;
+      }
+      if (i == 2) {
+        if (j == 0 || j == 3)
+          return true;
+      }
+    }
+    return false;
+  }
+  virtual bool overwrite_input_data_in_forward_impl(int i) const {
+    if (i == 3 || i == 4) {
+      return true;
+    }
+    return false;
+  }
 };
 } // namespace nbla

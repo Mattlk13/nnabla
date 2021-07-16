@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# for nnabla>=1.5.0
+FROM multiarch/debian-debootstrap:armhf-buster
 
-FROM multiarch/ubuntu-core:armhf-xenial
+ARG PIP_INS_OPTS
+ARG PYTHONWARNINGS
+ARG CURL_OPTS
+ARG WGET_OPTS
 
 ENV LC_ALL C
 ENV LANG C
@@ -24,14 +27,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bzip2 \
     ca-certificates \
     ccache \
-    clang-format-3.8 \
     cmake \
     curl \
     g++ \
     git \
     libarchive-dev \
-    libatlas-dev \
+    libatlas-base-dev \
     libhdf5-dev \
+    libopenblas-dev \
     liblapack-dev \
     make \
     pkg-config \
@@ -44,10 +47,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     zip
 
+############################################################ protobuf
 ENV PROTOVER=3.10.1
 RUN mkdir /tmp/deps \
     && cd /tmp/deps \
-    && curl -L https://github.com/google/protobuf/archive/v${PROTOVER}.tar.gz -o protobuf-v${PROTOVER}.tar.gz \
+    && curl ${CURL_OPTS} -L https://github.com/google/protobuf/archive/v${PROTOVER}.tar.gz -o protobuf-v${PROTOVER}.tar.gz \
     && tar xvf protobuf-v${PROTOVER}.tar.gz \
     && cd protobuf-${PROTOVER} \
     && mkdir build \
@@ -56,27 +60,7 @@ RUN mkdir /tmp/deps \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -Dprotobuf_BUILD_TESTS=OFF \
         ../cmake \
-    && make \
-    && make install \
-    && cd / \
-    && rm -rf /tmp/*
-
-################################################## libarchive
-RUN mkdir /tmp/deps \
-    && cd /tmp/deps \
-    && curl -L https://www.libarchive.org/downloads/libarchive-3.3.2.tar.gz -o libarchive-3.3.2.tar.gz \
-    && tar xfa libarchive-3.3.2.tar.gz \
-    && mkdir libarchive-build \
-    && cd libarchive-build \
-    && cmake \
-        -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DENABLE_NETTLE=FALSE -DENABLE_OPENSSL=FALSE \
-        -DENABLE_LZO=FALSE -DENABLE_LZMA=FALSE -DENABLE_BZip2=FALSE \
-        -DENABLE_LIBXML2=FALSE -DENABLE_EXPAT=FALSE -DENABLE_PCREPOSIX=FALSE -DENABLE_LibGCC=FALSE \
-        -DENABLE_CNG=FALSE -DENABLE_TAR=FALSE -DENABLE_TAR_SHARED=FALSE -DENABLE_CPIO=FALSE \
-        -DENABLE_CPIO_SHARED=FALSE -DENABLE_CAT=FALSE -DENABLE_CAT_SHARED=FALSE -DENABLE_XATTR=FALSE \
-        -DENABLE_ACL=FALSE -DENABLE_ICONV=FALSE -DENABLE_TEST=FALSE \
-        ../libarchive-3.3.2 \
-    && make \
+    && make -j8 \
     && make install \
     && cd / \
     && rm -rf /tmp/*
@@ -85,12 +69,19 @@ ADD python/setup_requirements.txt /tmp/deps/
 ADD python/requirements.txt /tmp/deps/
 ADD python/test_requirements.txt /tmp/deps/
 
-RUN python3 -m pip install --upgrade pip
+RUN python3 -m pip install ${PIP_INS_OPTS} --upgrade pip
 
-RUN pip3 install ipython six
+RUN echo "[global]" >/etc/pip.conf
+RUN echo "extra-index-url=https://www.piwheels.org/simple" >> /etc/pip.conf
 
-RUN pip3 install numpy
-RUN pip3 install scipy\<1.4
-RUN pip3 install -r /tmp/deps/setup_requirements.txt
-RUN pip3 install -r /tmp/deps/requirements.txt
-RUN pip3 install -r /tmp/deps/test_requirements.txt
+RUN pip3 install ${PIP_INS_OPTS} ipython
+
+RUN pip3 install ${PIP_INS_OPTS} -r /tmp/deps/setup_requirements.txt
+
+RUN cat /tmp/deps/requirements.txt |grep -v onnx >/tmp/deps/r.txt
+RUN mv /tmp/deps/r.txt /tmp/deps/requirements.txt
+
+RUN pip3 install ${PIP_INS_OPTS} -r /tmp/deps/requirements.txt
+RUN pip3 install ${PIP_INS_OPTS} -r /tmp/deps/test_requirements.txt
+
+ENV PATH /tmp/.local/bin:$PATH

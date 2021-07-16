@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -42,6 +42,9 @@ def scope_function():
 
     # keep context
     ctx = nn.get_current_context()
+
+    # use cached array
+    nn.prefer_cached_array(True)
 
     yield
 

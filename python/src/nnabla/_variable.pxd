@@ -50,11 +50,13 @@ cdef extern from "nbla/computation_graph/variable.hpp" namespace "nbla":
     ctypedef std_function[void(const CgFunctionPtr &)] function_hook_type
 
     cdef cppclass FunctionHookWithObject:
+        ctypedef std_function[void(void *)] setup_callback_type
         ctypedef std_function[void(void *)] cleanup_callback_type
         ctypedef std_function[void(void *, const CgFunctionPtr &)] callback_type
         FunctionHookWithObject()
         FunctionHookWithObject(void *obj, callback_type cb,
-                                   cleanup_callback_type clean_cb)
+                               setup_callback_type setup_cb,
+                               cleanup_callback_type clean_cb)
 
     cdef cppclass CgVariable:
         CgVariable() except+
@@ -71,13 +73,15 @@ cdef extern from "nbla/computation_graph/variable.hpp" namespace "nbla":
         cpp_bool need_grad_state_is_set() const
         void set_need_grad_state(cpp_bool b)
         void unset_need_grad_state()
+        cpp_bool recompute() const
+        void set_recompute(cpp_bool b)
         void set_parent(CgFunctionPtr func) except+
         CgFunctionPtr parent()
         VariablePtr variable()
         int rank() const
         void set_rank(int rank) except+
         void forward(cpp_bool clear_buffer, cpp_bool clear_no_need_grad, unordered_set[CgFunctionPtr] *fclosed, function_hook_type function_pre_hook, function_hook_type function_post_hook) nogil except+
-        void backward(NdArrayPtr grad, cpp_bool clear_buffer, vector[CommunicatorBackwardCallbackPtr] communicator_callbacks, function_hook_type function_pre_hook, function_hook_type function_post_hook) nogil except+
+        void backward(NdArrayPtr grad, cpp_bool clear_buffer, vector[CommunicatorBackwardCallbackPtr] communicator_callbacks, function_hook_type function_pre_hook, function_hook_type function_post_hook, cpp_bool clear_initial_grad) nogil except+
         void set_persistent(cpp_bool b)
         cpp_bool persistent()
         string name() except +

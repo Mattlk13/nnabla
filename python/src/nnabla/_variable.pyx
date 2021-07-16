@@ -93,20 +93,22 @@ cdef class CommunicatorBackwardCallback:
 
         return var
 
+cdef void callback_incref(void *obj) with gil:
+    Py_INCREF(<object>obj)
+
 cdef void callback_decref(void *obj) with gil:
-    # Note we do not decrement reference count because we do not increment.
-    # Py_DECREF(<object>obj)
-    pass
+    Py_DECREF(<object>obj)
 
 cdef void callback_call_callable(void *obj, const CgFunctionPtr &f) except+ with gil:
     cdef object cbl = <object>obj
     cbl(function.Function.create_from_c(const_pointer_cast[CgFunction, CgFunction](<const shared_ptr[CgFunction]&>f)))
 
 cdef FunctionHookWithObject create_function_hook_with_object(object callback):
-    # Note we do not have to increment reference count
-    # because we know callback will alive until FunctionHookWithObject dies.
-    # Py_INCREF(callback)
-    return FunctionHookWithObject(<void*>callback, <std_function[void(void*, const CgFunctionPtr&)]>callback_call_callable, <std_function[void(void*)]>callback_decref)
+    return FunctionHookWithObject(<void*>callback,
+                                  <std_function[void(void*, const CgFunctionPtr&)]>callback_call_callable,
+                                  <std_function[void(void*)]>callback_incref,
+                                  <std_function[void(void*)]>callback_decref)
+
 
 
 cdef class Variable:
@@ -121,7 +123,7 @@ cdef class Variable:
     * Reference to the parent function in a
       computation graph. This provides traceability of all connections in the computation graph.
     * Both data and error
-      signal (gradient) containers as :class:`nnabla._nd_array.NdArray` s.
+      signal (gradient) containers as :class:`nnabla.NdArray` s.
     * Some additional information of the computation graph.
 
     :class:`~nnabla.Variable` overrides some arithmetic operators
@@ -346,6 +348,23 @@ cdef class Variable:
     def need_grad(self, b):
         self.varp.set_need_grad(b)
 
+    @property
+    def recompute(self):
+        """
+        Gets or sets a boolean indicating whether its data is cleared during forward propagation and recomputation is performed during backward propagation. 
+
+        Args:
+            b (bool): Whether recomputation is performed during backward propagation.
+
+        Returns:
+           bool: Whether this variable is recomputed during backward propagation.
+        """
+        return self.varp.recompute()
+
+    @recompute.setter
+    def recompute(self, b):
+        self.varp.set_recompute(b)
+
     def rewire_on(self, var):
         '''Rewire a successor graph of this variable on top of ``var``.
 
@@ -384,14 +403,14 @@ cdef class Variable:
     @property
     def data(self):
         """Returns the data held by this variable, as a
-        :class:`~nnabla._nd_array.NdArray`. This can also be used as a setter.
+        :class:`~nnabla.NdArray`. This can also be used as a setter.
 
         Args:
-            ndarray (~nnabla._nd_array.NdArray): NdArray object. Size must
+            ndarray (~nnabla.NdArray): NdArray object. Size must
                 be the same as this Variable.
 
         Returns:
-            :class:`~nnabla._nd_array.NdArray`
+            :class:`~nnabla.NdArray`
         """
         return NdArray.create(self.varp.variable().get().data())
 
@@ -402,14 +421,14 @@ cdef class Variable:
     @property
     def grad(self):
         """Returns the gradient held by this variable, as a
-        :class:`~nnabla._nd_array.NdArray`. This can also be used as a setter.
+        :class:`~nnabla.NdArray`. This can also be used as a setter.
 
         Args:
-            ndarray (~nnabla._nd_array.NdArray): NdArray object. Size must
+            ndarray (~nnabla.NdArray): NdArray object. Size must
                 be the same as this Variable.
 
         Returns:
-            :class:`~nnabla._nd_array.NdArray`
+            :class:`~nnabla.NdArray`
         """
         return NdArray.create(self.varp.variable().get().grad())
 
@@ -425,7 +444,7 @@ cdef class Variable:
         modification of the returned ndarray will affect the data of the
         NNabla array.
         This method can be called as a setter to set the value held by this variable.
-        Refer to the documentation of the setter `nnabla._nd_array.NdArray.data`
+        Refer to the documentation of the setter `nnabla.NdArray.data`
         for detailed behaviors of the setter.
 
         Args:
@@ -448,7 +467,7 @@ cdef class Variable:
         modification of the returned ndarray will affect the data of the
         NNabla array.
         This method can be called as a setter to set the gradient held by this variable.        
-        Refer to the documentation of the setter `nnabla._nd_array.NdArray.data`
+        Refer to the documentation of the setter `nnabla.NdArray.data`
         for detailed behaviors of the setter.
 
         Args:
@@ -511,12 +530,14 @@ cdef class Variable:
         The subset is recursively constructed by tracking variables that the 
         variables in the subset depend on, starting from this variable,
         until it reaches the root variable(s) in the function graph.
+        See also :obj:`~nnnabla.forward_all`, which performs forward computations for all variables within the input graph.
 
         Args:
             clear_buffer (bool): Clear the no longer referenced variables
                 during forward propagation to save memory.
                 This is usually set as True in an inference
                 or a validation phase. Default is False.
+                Note that all unnecessary intermediate variables will be cleared unless set explicitly as `persistent=True`.
             clear_no_need_grad (bool): Clear the unreferenced variables with
                 need_grad=False during forward propagation.
                 True is usually used when calling this during training.
@@ -542,6 +563,7 @@ cdef class Variable:
         with nogil:
             self.varp.forward(clear_buffer, clear_no_need_grad, NULL, function_pre_hook_c, function_post_hook_c)
 
+
     def backward(self, grad=1, cpp_bool clear_buffer=False, communicator_callbacks=None,
                  function_pre_hook=None, function_post_hook=None):
         """
@@ -550,7 +572,7 @@ cdef class Variable:
         The propagation will stop at a variable with need_grad=False.
 
         Args:
-            grad(scalar, :obj:`numpy.ndarray`, :obj:`nnabla._nd_array.NdArray`, or None):
+            grad(scalar, :obj:`numpy.ndarray`, :obj:`nnabla.NdArray`, or None):
                 The gradient signal value(s) of this variable.
                 The default value 1 is used in an usual neural network training.
                 This option is useful if you have a gradient computation module outside NNabla,
@@ -563,7 +585,7 @@ cdef class Variable:
                 **You need to set grad=None**, otherwise, for that backward pass (propagated from the unlinked :class:`~nnabla.Variable`),
                 pre-computed gradient values are **ignored**.
             clear_buffer(bool): Clears the no longer referenced variables
-                during backpropagation to save memory.
+                during backpropagation to save memory. Note that all unnecessary intermediate variables will be cleared unless set explicitly as `persistent=True`.
             communicator_callbacks(:obj:`nnabla.CommunicatorBackwardCallback` or list of :obj:`nnabla.CommunicatorBackwardCallback`):
                 The callback functions invoked when 1) backward computation
                 of each function is finished and 2) all backward
@@ -744,23 +766,29 @@ cdef class Variable:
 
         """
         cdef NdArrayPtr p
-        if grad is None:
-            pass
-        elif np.isscalar(grad):
-            arr = NdArray(self.shape)
-            arr.fill(grad)
-            p = ( < NdArray > arr).arr
-        elif isinstance(grad, NdArray):
-            p = ( < NdArray > grad).arr
-        elif isinstance(grad, np.ndarray):
-            arr = NdArray(grad.shape)
-            arr.data = grad
-            p = ( < NdArray > arr).arr
+        cdef cpp_bool clear_initial_grad = False
+        if isinstance(grad, NdArray):
+            # Share a user-refered NdArray as a initial grad
+            clear_initial_grad = False
+            p = ( < NdArray > grad).arr            
         else:
-            # Try to interpret as scalar value
-            arr = NdArray()
-            arr.data = grad
-            p = ( < NdArray > arr).arr
+            # Use a temporary NdArray as a initial grad
+            clear_initial_grad = True
+            if grad is None:
+                pass
+            elif np.isscalar(grad):
+                arr = NdArray(self.shape)
+                arr.fill(grad)
+                p = ( < NdArray > arr).arr
+            elif isinstance(grad, np.ndarray):
+                arr = NdArray(grad.shape)
+                arr.data = grad
+                p = ( < NdArray > arr).arr
+            else:
+                # Try to interpret as scalar value
+                arr = NdArray()
+                arr.data = grad
+                p = ( < NdArray > arr).arr
 
         cdef vector[CommunicatorBackwardCallbackPtr] callback_list
         if type(communicator_callbacks) == list:
@@ -778,7 +806,7 @@ cdef class Variable:
             function_post_hook_c = create_function_hook_with_object(function_post_hook)
 
         with nogil:
-            self.varp.backward(p, clear_buffer, callback_list, function_pre_hook_c, function_post_hook_c)
+            self.varp.backward(p, clear_buffer, callback_list, function_pre_hook_c, function_post_hook_c, clear_initial_grad)
 
     def unlinked(self, need_grad=None):
         """
@@ -839,6 +867,27 @@ cdef class Variable:
         else:
             (< Variable > var).varp.set_need_grad(self.varp.need_grad_state())
         return var
+
+    def no_grad(self):
+        """No gradients for the whole network.
+
+        This method is like :obj:`nnabla.no_grad` but can be used for the static network only, and useful for 
+        the case where the network is loaded from NNP format.
+        
+        Example:
+
+            .. code-block:: python
+
+                x = nn.Variable.from_numpy_array([2, 3])
+                y = <Network>(x).no_grad()
+        """
+
+        import nnabla.experimental.graph_converters as GC
+        modifiers = [GC.NoGradModifier()]
+        gc = GC.GraphConverter(modifiers)
+        out = gc.convert(self)
+        return out
+        
 
     @property
     def persistent(self):
@@ -1057,8 +1106,58 @@ cdef class Variable:
     def __pow__(x, y, z):
         return AOP.pow(x, y, z)
 
+    def __iadd__(self, x):
+        import nnabla.functions as F
+        if isinstance(x, (NdArray, Variable)):
+            return F.add2(self, x, inplace=True)
+        else:
+            return F.add_scalar(self, x, inplace=True)
+
+    def __isub__(self, x):
+        import nnabla.functions as F
+        if isinstance(x, (NdArray, Variable)):
+            return F.sub2(self, x, inplace=True)
+        else:
+            return F.add_scalar(self, -x, inplace=True)
+
+    def __imul__(self, x):
+        import nnabla.functions as F
+        if isinstance(x, (NdArray, Variable)):
+            return F.mul2(self, x)
+        else:
+            return F.mul_scalar(self, x)
+
+    def __idiv__(self, x):
+        import nnabla.functions as F
+        if isinstance(x, (NdArray, Variable)):
+            return F.div2(self, x, inplace=True)
+        else:
+            return F.mul_scalar(self, 1. / x)
+
+    def __itruediv__(self, x):
+        import nnabla.functions as F
+        if isinstance(x, (NdArray, Variable)):
+            return F.div2(self, x, inplace=True)
+        else:
+            return F.mul_scalar(self, 1. / x)
+
+    def __ipow__(self, x):
+        import nnabla.functions as F
+        if isinstance(x, (NdArray, Variable)):
+            return F.pow2(self, x)
+        else:
+            return F.pow_scalar(self, x)
+
     def __getitem__(self, key):
         return IDX.getitem(self, key)
 
     def __setitem__(self, key, value):
-        IDX.setitem(self, key, value)
+        if not isinstance(value, Variable):
+            if isinstance(value, NdArray):
+                value = Variable(value.shape).apply(data=value)
+            else:
+                value = Variable.from_numpy_array(value)
+        var = self.get_unlinked_variable()
+        if self.parent:
+            var.apply(parent=self.parent)
+        self.rewire_on(IDX.setitem(var, key, value))

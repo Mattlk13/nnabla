@@ -40,6 +40,9 @@ cdef extern from "nbla/function.hpp" namespace "nbla":
         void backward(const Variables&, const Variables&,
                       const vector[cpp_bool] &propagate_down,
                       const vector[cpp_bool] &accum) nogil except +
+        void setup_recompute(const Variables&, const Variables&) nogil except +
+        void recompute(const Variables&, const Variables&) nogil except +
+        CContext context() except +
         vector[dtypes] in_types()
         vector[dtypes] out_types()
         int min_inputs()
@@ -47,10 +50,9 @@ cdef extern from "nbla/function.hpp" namespace "nbla":
         string name()
         shared_ptr[CFunction] copy() except +
         cpp_bool grad_depends_output_data(int i, int o) except+
+        cpp_bool need_setup_recompute(int o) except+
         int inplace_data(int i) except+
         int inplace_data_with(int i) except+
-        int inplace_grad(int i) except+
-        int inplace_grad_with(int i) except+
 
     ctypedef shared_ptr[CFunction] FunctionPtr
 
@@ -79,7 +81,9 @@ cdef extern from "nbla/function/callback.hpp":
         void(void *, const Variables&, const Variables &) nogil except+,
         void(void *, const Variables&, const Variables &,
              const vector[cpp_bool] &, const vector[cpp_bool] &) nogil except+,
-        void(void *) nogil) except +
+        void(void *) nogil,
+        cpp_bool(void *, int, int) nogil except+,
+        cpp_bool(void *, int, int) nogil except+) except +
 <%
 from utils.type_conv import type_from_proto
 %>    

@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,7 +30,6 @@ void ReLU<T>::setup_impl(const Variables &inputs, const Variables &outputs) {
   outputs[0]->reshape(inputs[0]->shape(), true);
   if (inplace_) {
     outputs[0]->data()->set_array(inputs[0]->data()->array());
-    outputs[0]->grad()->set_array(inputs[0]->grad()->array());
   }
 }
 
@@ -42,12 +42,12 @@ void ReLU<T>::forward_impl(const Variables &inputs, const Variables &outputs) {
   }
 }
 template <typename T, bool accum>
-void relu_backward_cpu(int size, T *dx, const T *dy, const T *x) {
+void relu_backward_cpu(int size, T *dx, const T *dy, const T *y) {
   for (int s = 0; s < size; ++s) {
     if (accum)
-      dx[s] += (x[s] > 0 ? dy[s] : (T)0);
+      dx[s] += (y[s] > 0 ? dy[s] : (T)0);
     else
-      dx[s] = (x[s] > 0 ? dy[s] : (T)0);
+      dx[s] = (y[s] > 0 ? dy[s] : (T)0);
   }
 }
 
@@ -58,19 +58,12 @@ void ReLU<T>::backward_impl(const Variables &inputs, const Variables &outputs,
   if (!propagate_down[0]) {
     return;
   }
-  const T *x = inputs[0]->get_data_pointer<T>(this->ctx_);
-  T *dx = inputs[0]->cast_grad_and_get_pointer<T>(this->ctx_,
-                                                  !(inplace_ || accum[0]));
+  const T *y = outputs[0]->get_data_pointer<T>(this->ctx_);
+  T *dx = inputs[0]->cast_grad_and_get_pointer<T>(this->ctx_, !accum[0]);
   const T *dy = outputs[0]->get_grad_pointer<T>(this->ctx_);
-  if (dx != dy) {
-    // not in-place
-    if (accum[0])
-      relu_backward_cpu<T, true>(inputs[0]->size(), dx, dy, x);
-    else
-      relu_backward_cpu<T, false>(inputs[0]->size(), dx, dy, x);
-  } else {
-    // in-place
-    relu_backward_cpu<T, false>(inputs[0]->size(), dx, dy, x);
-  }
+  if (accum[0])
+    relu_backward_cpu<T, true>(inputs[0]->size(), dx, dy, y);
+  else
+    relu_backward_cpu<T, false>(inputs[0]->size(), dx, dy, y);
 }
 }

@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ def ref_log_softmax(x, axis):
 
 
 @pytest.mark.parametrize("seed", [313])
-@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("axis", [0, 1, 2, -1, -2, -3])
 @pytest.mark.parametrize("ctx, func_name", list_context('LogSoftmax'))
 def test_log_softmax_forward_backward(seed, axis, ctx, func_name):
     from nbla_test_utils import function_tester
@@ -36,12 +36,11 @@ def test_log_softmax_forward_backward(seed, axis, ctx, func_name):
 
 
 @pytest.mark.parametrize("seed", [313])
-@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("axis", [0, 1, 2, -1, -2, -3])
 @pytest.mark.parametrize("ctx, func_name", list_context('LogSoftmax'))
 def test_log_softmax_double_backward(seed, axis, ctx, func_name):
     from nbla_test_utils import backward_function_tester
     rng = np.random.RandomState(seed)
     inputs = [rng.randn(2, 3, 4).astype(np.float32)]
-    backward_function_tester(rng, F.log_softmax, None, inputs, func_args=[axis],
-                             ctx=ctx, func_name=func_name,
-                             atol_b=1e-1, atol_accum=1e-1, dstep=1e-3)
+    backward_function_tester(rng, F.log_softmax, inputs,
+                             func_args=[axis], ctx=ctx)

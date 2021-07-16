@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -82,7 +83,8 @@ public:
                          const std::shared_ptr<Communicator> &comm,
                          const std::string &group, const vector<int> axes,
                          float decay_rate, float eps, bool batch_stat)
-      : BatchNormalization<T>(ctx, axes, decay_rate, eps, batch_stat),
+      : BatchNormalization<T>(ctx, axes, decay_rate, eps, batch_stat,
+                              false /* no_scale */, false /* no_bias */),
         comm_(comm), group_(group) {}
   virtual ~SyncBatchNormalization() {}
   virtual shared_ptr<Function> copy() const override {
@@ -91,16 +93,39 @@ public:
                                          this->eps_, this->batch_stat_);
   }
   virtual string name() override { return "SyncBatchNormalization"; }
+  virtual bool grad_depends_output_data(int i, int o) const { return o > 0; }
 
 protected:
   NBLA_API virtual void setup_impl(const Variables &inputs,
                                    const Variables &outputs) override;
   NBLA_API virtual void forward_impl_batch(const Variables &inputs,
-                                           const Variables &outputs) override;
+                                           const Variables &outputs,
+                                           const bool update_inputs) override;
   NBLA_API virtual void backward_impl_batch(const Variables &inputs,
                                             const Variables &outputs,
                                             const vector<bool> &propagate_down,
                                             const vector<bool> &accum) override;
+  virtual bool grad_depends_input_data_impl(int i, int j) const {
+    if (i == 0) {
+      if (j == 0)
+        return true;
+    }
+    if (i == 1) {
+      if (j == 0)
+        return true;
+    }
+    if (i == 2) {
+      if (j == 0 || j == 2)
+        return true;
+    }
+    return false;
+  }
+  virtual bool overwrite_input_data_in_forward_impl(int i) const {
+    if (i == 3 || i == 4) {
+      return true;
+    }
+    return false;
+  }
 };
 }
 #endif

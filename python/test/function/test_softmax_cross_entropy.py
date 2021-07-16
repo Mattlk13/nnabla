@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ def ref_softmax_cross_entropy(x, l, axis):
 
 @pytest.mark.parametrize("ctx, func_name", ctxs)
 @pytest.mark.parametrize("seed", [314])
-@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("axis", [0, 1, 2, -1, -2, -3])
 def test_softmax_cross_entropy_forward_backward(seed, axis, ctx, func_name):
     from nbla_test_utils import function_tester
     ishape = [2, 3, 4]
@@ -56,7 +56,7 @@ def test_softmax_cross_entropy_forward_backward(seed, axis, ctx, func_name):
 
 @pytest.mark.parametrize("ctx, func_name", ctxs)
 @pytest.mark.parametrize("seed", [314])
-@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("axis", [0, 1, 2, -1, -2, -3])
 def test_softmax_cross_entropy_double_backward(seed, axis, ctx, func_name):
     from nbla_test_utils import backward_function_tester
     ishape = [2, 3, 4]
@@ -70,9 +70,8 @@ def test_softmax_cross_entropy_double_backward(seed, axis, ctx, func_name):
         rng.randn(2, 3, 4).astype(np.float32) * 2,
         rng.randint(0, n_class, size=l_shape).astype(np.int)]
 
-    backward_function_tester(rng, F.softmax_cross_entropy, ref_softmax_cross_entropy,
+    backward_function_tester(rng, F.softmax_cross_entropy,
                              inputs, func_args=[axis], backward=[True, False],
-                             atol_b=1e-3,
                              atol_accum=1e-3,
                              dstep=1e-3,
-                             ctx=ctx, func_name=func_name)
+                             ctx=ctx)

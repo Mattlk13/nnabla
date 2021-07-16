@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +15,7 @@
 
 from six import iterkeys
 
+import pytest
 import numpy as np
 import nnabla.parametric_functions as PF
 from nnabla.initializer import UniformInitializer
@@ -175,3 +177,68 @@ def test_parameter_as_need_grad():
     assert not params['bn/var'].need_grad
 
     assert not any([v.need_grad for v in y.parent.inputs[1:5]])
+
+
+@pytest.mark.parametrize("auto_forward", [False, True])
+def test_no_grad(auto_forward):
+    import nnabla as nn
+    import nnabla.functions as F
+    import nnabla.parametric_functions as PF
+
+    nn.clear_parameters()
+
+    def network(x):
+        def conv_bn_relu(h, i, name, skip=True):
+            s = h
+            imaps = h.shape[1]
+            with nn.parameter_scope(name):
+                h = PF.convolution(h, imaps, (3, 3), pad=(1, 1))
+                h = PF.batch_normalization(h)
+                h = F.relu(h)
+            if not skip:
+                return F.concatenate(*[h, s], axis=1) if i % 2 == 0 else h + s
+
+            h = F.split(h, axis=1)
+            h = [h_.reshape(h_.shape[:1] + (1, ) + h_.shape[1:]) for h_ in h]
+            h = F.concatenate(*h, axis=1)
+            return h
+
+        h = x
+        h = conv_bn_relu(h, 0, "first-conv", False)
+        for i in range(10):
+            h = conv_bn_relu(h, i, f"{i:00d}-conv")
+        pred = F.tanh(h)
+        return pred
+
+    def assert_need_grad_flase(f):
+        for inp in f.inputs:
+            assert inp.need_grad == False, "need_grad must be false"
+        for out in f.outputs:
+            assert out.need_grad == False, "need_grad must be false"
+
+    x = nn.Variable.from_numpy_array(np.random.randn(4, 16, 32, 32)) \
+        .apply(need_grad=False) \
+        .apply(persistent=True)
+    with nn.auto_forward(auto_forward):
+        y0 = network(x)
+        y0.forward(clear_no_need_grad=True) if not auto_forward else None
+    with nn.auto_forward(auto_forward), nn.no_grad():
+        y1 = network(x)
+        y1.forward(clear_no_need_grad=True) if not auto_forward else None
+
+    y1.visit(assert_need_grad_flase)
+    np.testing.assert_allclose(y0.d, y1.d)
+
+
+@pytest.mark.parametrize("p_name", ["aaa/bbb/ccc", "abc"])
+def test_param_name(p_name):
+    import nnabla as nn
+    rng = np.random.RandomState(seed=313)
+    shape = (8, 8, 3, 3)
+
+    pe_name = p_name.split('/')[-1]
+    nn.clear_parameters()
+    initializer = UniformInitializer(lim=(-1, 1), rng=rng)
+    param1 = nn.parameter.get_parameter_or_create(
+        p_name, shape, initializer=initializer, need_grad=True)
+    assert param1.name == pe_name

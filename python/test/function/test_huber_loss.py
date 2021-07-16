@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -46,6 +46,6 @@ def test_huber_loss_double_backward(seed, ctx, func_name, delta):
     from nbla_test_utils import cap_ignore_region, backward_function_tester
     rng = np.random.RandomState(seed)
     inputs = [rng.randn(2, 3, 4).astype(np.float32) * 2 for _ in range(2)]
-    backward_function_tester(rng, F.huber_loss, None, inputs,
+    backward_function_tester(rng, F.huber_loss, inputs,
                              func_args=[delta],
-                             atol_b=1e-2, atol_accum=1e-2, ctx=ctx, func_name=func_name)
+                             atol_accum=1e-2, ctx=ctx)

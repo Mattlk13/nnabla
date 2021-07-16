@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,6 +31,7 @@ in-place computation is allowed. We need this for an implementation for
 broadcastable Add2. If Add2's inputs require broadcasting, it's fallback into
 BcAdd2 operation. See setup_impl of add2.cpp.
  */
-NBLA_DEFINE_TRANSFORM_BINARY(BcAdd2, x0 + x1, dy, dy, false, false);
+NBLA_DEFINE_TRANSFORM_BINARY_INPLACE(BcAdd2, x0 + x1, dy, dy, false, false,
+                                     false, false, false);
 }
 #endif

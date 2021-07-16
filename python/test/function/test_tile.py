@@ -1,4 +1,4 @@
-# Copyright (c) 2019 Sony Corporation. All Rights Reserved.
+# Copyright 2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,8 +22,8 @@ ctxs = list_context('Tile')
 
 @pytest.mark.parametrize("ctx, func_name", ctxs)
 @pytest.mark.parametrize("seed", [314])
-@pytest.mark.parametrize("inshape", [(12,), (3, 5), (2, 3, 4)])
-@pytest.mark.parametrize("reps", [(2,), (3, 2), (3, 2, 3)])
+@pytest.mark.parametrize("inshape", [(12,), (3, 5), (2, 3, 4), (4, 3, 8, 8)])
+@pytest.mark.parametrize("reps", [(2,), (3, 2), (3, 2, 3), (3, 2, 3, 5)])
 def test_tile_forward_backward(inshape, reps, seed, ctx, func_name):
     rng = np.random.RandomState(seed)
     inputs = [rng.randn(*inshape).astype(np.float32)]

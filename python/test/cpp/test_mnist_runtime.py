@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ def command_exists(command):
 
 @pytest.mark.parametrize('batch_size', [1])
 def test_examples_cpp_mnist_runtime(tmpdir, nnabla_examples_root, batch_size):
+    pytest.skip('Temporarily skip due to mnist training data server trouble.')
     nn.clear_parameters()
 
     # A. Check this test can run

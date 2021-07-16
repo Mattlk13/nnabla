@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,18 +32,32 @@ def ref_slice(x, start, stop, step):
 @pytest.mark.parametrize("ctx, fname", ctxs)
 @pytest.mark.parametrize("seed", [313])
 @pytest.mark.parametrize("inshape, start, stop, step", [
+    ((2, 2), (0, 0), (5, 5), (1, 1)),
     ((2, 2), (0, 0), (2, 2), (1, 1)),
     ((6, 7, 8), (1, 2, 3), (5, 4, 8), (1, 1, 2)),
     ((6, 7, 6, 5), (4, 3, 2, 1), (5, 6, 5, 4), (1, 2, 3, 4)),
     ((7, 6, 5, 4, 3), (5, 4, 3, 2, 1), (6, 6, 5, 4, 2), (1, 2, 3, 2, 1)),
+    ((4, 4, 4, 4, 3, 5), (0, 1, 0, 1, 1, 2),
+     (2, 4, 2, 4, 2, 5), (2, 1, 2, 1, 1, 1)),
+    ((4, 4, 4, 4, 3, 5, 3), (0, 1, 0, 1, 1, 2, 2),
+     (2, 4, 2, 4, 2, 4, 3), (2, 1, 2, 1, 1, 1, 1)),
+    ((2, 3, 2, 3, 3, 5, 3, 4), (0, 1, 0, 1, 1, 2, 2, 0),
+     (2, 3, 2, 3, 2, 4, 3, 4), (2, 1, 2, 1, 1, 1, 1, 2)),
     ((6, 7, 6, 5), (0, 0, 1, 2), (6, -1, -2, -3), (1, 1, 1, 1)),
     ((6, 7, 6, 5), (4, 3, -2, 1), (5, -6, 5, 4), (-1, 2, 3, 4)),
 ])
 def test_slice_forward_backward(seed, inshape, start, stop, step, ctx, fname):
     rng = np.random.RandomState(seed)
     x = rng.randn(*inshape).astype(np.float32)
+
+    oshape = ref_slice(x, start, stop, step).shape
+    disable_clear_no_need_grad_test = False
+    # If oshape has a dimention of size 0, disable clear_no_need_grad_test.
+    if 0 in oshape:
+        disable_clear_no_need_grad_test = True
     function_tester(rng, F.slice, ref_slice, [x], ctx=ctx, func_name=fname,
-                    func_args=[start, stop, step], atol_f=1e-4, atol_b=1e-2)
+                    func_args=[start, stop, step], atol_f=1e-4, atol_b=1e-2,
+                    disable_clear_no_need_grad_test=disable_clear_no_need_grad_test)
 
 
 @pytest.mark.parametrize("ctx, fname", ctxs)
@@ -83,9 +98,21 @@ def test_slice_forward_special(seed, inshape, start, stop, step, ctx, fname):
     ((6, 7, 6, 5), (5, 0, -2, 1), (4, -6, 5, 4), (-1, 2, 3, 4)),
 ])
 def test_slice_double_backward(seed, inshape, start, stop, step, ctx, fname):
-    from nbla_test_utils import backward_function_tester, cap_ignore_region
+    from nbla_test_utils import backward_function_tester, grad_function_forward_function_output
+    from nnabla.backward_function.slice import SliceDataGrad
     rng = np.random.RandomState(seed)
     x = rng.randn(*inshape).astype(np.float32)
-    backward_function_tester(rng, F.slice, None, [x], ctx=ctx, func_name=fname,
-                             func_args=[start, stop, step], atol_f=1e-4,
-                             atol_b=1e-2, atol_accum=1e-2, dstep=1e-4)
+    func_args = [start, stop, step]
+    # 2nd-order
+    backward_function_tester(rng, F.slice, [x], ctx=ctx,
+                             func_args=func_args)
+    # 3rd-order
+    df, y = grad_function_forward_function_output(SliceDataGrad,
+                                                  F.slice,
+                                                  ctx, [x],
+                                                  *func_args)
+    df.xshape = x.shape
+    ginputs = [rng.randn(*y.shape)]
+    backward_function_tester(rng, df,
+                             ginputs, func_args=[],
+                             ctx=ctx, non_accum_check=True)

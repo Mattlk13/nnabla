@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -45,8 +45,8 @@ void DequantizeLinear<T>::setup_impl(const Variables &inputs,
 
   outputs[0]->reshape(inputs[0]->shape(), true);
 
-  mul2_ = create_Mul2(this->ctx_);
-  sub2_ = create_Sub2(this->ctx_);
+  mul2_ = create_Mul2(this->ctx_, false);
+  sub2_ = create_Sub2(this->ctx_, false);
   add2_ = create_Add2(this->ctx_, false);
   // sum_ = create_Sum(this->ctx_);
 }
@@ -75,7 +75,6 @@ void DequantizeLinear<T>::backward_impl(const Variables &inputs,
 
   auto x = inputs[0];
   auto scale = inputs[1];
-  auto zero_point = inputs[2];
   auto y = outputs[0];
 
   auto dx_sptr = make_shared<Variable>(x->shape());

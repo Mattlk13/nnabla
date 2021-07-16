@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -57,6 +57,14 @@ NNabla::NNabla() {}
 
 NNabla::~NNabla() {}
 
+const void *async_get(const shared_ptr<SyncedArray> &arr, dtypes dtype,
+                      const Context &ctx) {
+  auto ret = arr->get(dtype, ctx, AsyncFlag::ASYNC)->const_pointer<void>();
+  arr->get(dtype, ctx); // Workaraound to wait async copy. call get again by the
+                        // same dtype and ctx.
+  return ret;
+}
+
 const void *NNabla::ones(Size_t size, dtypes dtype, const Context &ctx) {
   auto tid = std::this_thread::get_id();
   shared_ptr<SyncedArray> ones;
@@ -66,7 +74,7 @@ const void *NNabla::ones(Size_t size, dtypes dtype, const Context &ctx) {
     ones = std::make_shared<SyncedArray>(size);
     ones->fill(1);
     ones_[tid] = ones;
-    return ones->get(dtype, ctx)->const_pointer<void>();
+    return async_get(ones, dtype, ctx);
   }
   ones = it->second;
   if (size > ones->size()) {
@@ -74,7 +82,7 @@ const void *NNabla::ones(Size_t size, dtypes dtype, const Context &ctx) {
     ones->fill(1);
     ones_[tid] = ones;
   }
-  return ones->get(dtype, ctx)->const_pointer<void>();
+  return async_get(ones, dtype, ctx);
 }
 
 const void *NNabla::zeros(Size_t size, dtypes dtype, const Context &ctx) {
@@ -86,7 +94,7 @@ const void *NNabla::zeros(Size_t size, dtypes dtype, const Context &ctx) {
     zeros = std::make_shared<SyncedArray>(size);
     zeros->zero();
     ones_[tid] = zeros;
-    return zeros->get(dtype, ctx)->const_pointer<void>();
+    return async_get(zeros, dtype, ctx);
   }
   zeros = it->second;
   if (size > zeros->size()) {
@@ -94,7 +102,7 @@ const void *NNabla::zeros(Size_t size, dtypes dtype, const Context &ctx) {
     zeros->zero();
     ones_[tid] = zeros;
   }
-  return zeros->get(dtype, ctx)->const_pointer<void>();
+  return async_get(zeros, dtype, ctx);
 }
 
 NBLA_INSTANTIATE_SINGLETON(NBLA_API, NNabla);

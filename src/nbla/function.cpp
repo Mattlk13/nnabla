@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,6 +27,8 @@ Function::Function(const Context &ctx) : ctx_(ctx), fall_back_func_(nullptr) {}
 Function::~Function() {}
 
 void Function::setup(const Variables &inputs, const Variables &outputs) {
+  called_setup_ = true;
+
   if (fall_back_func_) {
     // Fall back to the specified Function.
     fall_back_func_->setup(inputs, outputs);
@@ -35,7 +38,8 @@ void Function::setup(const Variables &inputs, const Variables &outputs) {
   // classes.
   int array_class_index =
       0; // Default array is 0-th array_class in allowed_array_classes().
-  for (int i = 0; i < this->allowed_array_classes().size(); ++i) {
+  for (vector<string>::size_type i = 0;
+       i < this->allowed_array_classes().size(); ++i) {
     if (ctx_.array_class == this->allowed_array_classes()[i]) {
       array_class_index = i;
     }
@@ -45,10 +49,12 @@ void Function::setup(const Variables &inputs, const Variables &outputs) {
   // Check number of inputs and outputs
   auto &&in_types = this->in_types();
   auto &&out_types = this->out_types();
-  NBLA_CHECK(this->min_inputs() <= inputs.size(), error_code::value,
+  auto min_inputs = static_cast<Variables::size_type>(this->min_inputs());
+  auto min_outputs = static_cast<Variables::size_type>(this->min_outputs());
+  NBLA_CHECK(min_inputs <= inputs.size(), error_code::value,
              "%s needs at least %d inputs (given %d). ", this->name().c_str(),
              this->min_inputs(), inputs.size());
-  NBLA_CHECK(this->min_outputs() <= outputs.size(), error_code::value,
+  NBLA_CHECK(min_outputs <= outputs.size(), error_code::value,
              "%s needs at least %d outputs (given %d). ", this->name().c_str(),
              this->min_outputs(), outputs.size());
 
@@ -62,10 +68,10 @@ void Function::setup(const Variables &inputs, const Variables &outputs) {
   // Memorize shapes
   in_shapes.clear();
   out_shapes.clear();
-  for (int i = 0; i < inputs.size(); ++i) {
+  for (Variables::size_type i = 0; i < inputs.size(); ++i) {
     in_shapes.push_back(make_shared<Shape_t>(inputs[i]->shape()));
   }
-  for (int i = 0; i < outputs.size(); ++i) {
+  for (Variables::size_type i = 0; i < outputs.size(); ++i) {
     out_shapes.push_back(make_shared<Shape_t>(outputs[i]->shape()));
   }
 }
@@ -82,7 +88,7 @@ static void check_shapes(Function *function, const Variables &inputs,
              "Num of outputs has been changed since setup is called in %s. "
              "Given: %d != previously: %d. ",
              function->name().c_str(), outputs.size(), out_shapes.size());
-  for (int i = 0; i < inputs.size(); ++i) {
+  for (Variables::size_type i = 0; i < inputs.size(); ++i) {
     NBLA_CHECK(*in_shapes[i] == inputs[i]->shape(), error_code::value,
                "Inconsistent shape in input %d of %s. "
                "Setup: (%s) != Given: (%s).",
@@ -90,7 +96,7 @@ static void check_shapes(Function *function, const Variables &inputs,
                string_join(*(in_shapes[i]), string(", ")).c_str(),
                string_join(inputs[i]->shape(), string(", ")).c_str());
   }
-  for (int i = 0; i < outputs.size(); ++i) {
+  for (Variables::size_type i = 0; i < outputs.size(); ++i) {
     NBLA_CHECK(*out_shapes[i] == outputs[i]->shape(), error_code::value,
                "Inconsistent shape in output %d of %s. "
                "Setup: (%s) != Given: (%s).",
@@ -147,15 +153,40 @@ void Function::backward(const Variables &inputs, const Variables &outputs,
   // Variable::cast* function resets all lazy-evaluation flags before getting an
   // array instance.
   if (!this->prohibit_zero_input_grad()) {
-    for (int i = 0; i < inputs.size(); i++) {
-      if (propagate_down[i] && !accum[i] &&
-          (this->inplace_grad(i) == Function::NOT_INPLACE)) {
+    for (Variables::size_type i = 0; i < inputs.size(); i++) {
+      if (propagate_down[i] && !accum[i]) {
         inputs[i]->grad()->zero();
       }
     }
   }
   // Calling the sub-class implementation of backward.
   this->backward_impl(inputs, outputs, propagate_down, accum);
+}
+
+void Function::setup_recompute(const Variables &inputs,
+                               const Variables &outputs) {
+  this->setup_recompute_impl(inputs, outputs);
+  called_setup_recompute_ = true;
+}
+
+void Function::recompute(const Variables &inputs, const Variables &outputs) {
+  // Check whether `setup_recompute` is called correctly.
+  for (Variables::size_type o = 0; o < outputs.size(); o++) {
+    if (need_setup_recompute(o)) {
+      NBLA_CHECK(called_setup_recompute_, error_code::runtime,
+                 "%s needs to execute `setup_recompute()` before calling "
+                 "`recompute()`.",
+                 name().c_str(), name().c_str());
+    }
+  }
+
+  if (fall_back_func_) {
+    // Fall back to the specified Function.
+    fall_back_func_->recompute(inputs, outputs);
+    return;
+  }
+  this->recompute_impl(inputs, outputs);
+  called_setup_recompute_ = false;
 }
 
 Context Function::context() const { return ctx_; }

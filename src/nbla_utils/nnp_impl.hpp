@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -474,12 +474,6 @@ class NnpImpl {
   unique_ptr<::NNablaProtoBuf> proto_;
   unordered_map<string, CgVariablePtr> parameters_;
 
-  static const int MAX_NAME = 1024;
-#ifdef NBLA_UTILS_WITH_HDF5
-  hid_t root_;
-  bool parse_hdf5_dataset(std::string name, hid_t did);
-  bool parse_hdf5_group(hid_t gid);
-#endif
   void update_parameters();
   int get_network_repeat_nest_depth(const ::Network &orig);
   std::vector<std::string> create_suffixes(std::string prefix,

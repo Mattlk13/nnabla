@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -436,9 +437,7 @@ def test_pf_fused_bn_no_scale_bias(no_scale, no_bias):
 @pytest.mark.parametrize("u_init", [None, True])
 def test_pf_spectral_norm_execution(g_rng, w_shape, dim, itr, test, u_init):
     # python implementation
-    def spectral_norm_numpy(w, dim=0, itr=1, eps=1e-12, test=False, u_init_d=None):
-        if test:
-            return w
+    def spectral_norm_numpy(w, dim=0, itr=1, eps=1e-12, u_init_d=None):
         w_shape = w.shape
         if dim != 0:
             dims_transpose = [dim] + \
@@ -470,23 +469,23 @@ def test_pf_spectral_norm_execution(g_rng, w_shape, dim, itr, test, u_init):
     w_sn = PF.spectral_norm(w, dim, itr, test=test, u_init=u_init)
     u_init_d = nn.get_parameters(grad_only=False)['spectral-norm/u'].d.copy() \
         if u_init is None else u_init
-    if not test:
-        w_sn.forward()
-        w_sn.backward()
-    else:
-        w_sn = w
+
+    w_sn.forward()
+    w_sn.backward()
 
     # Check values
     w_sn_numpy = spectral_norm_numpy(
-        w.d, dim, itr, test=test, u_init_d=u_init_d)
+        w.d, dim, itr, u_init_d=u_init_d)
     assert_allclose(w_sn_numpy, w_sn.d, atol=1e-2, rtol=1e-5)
+    if test:
+        u = nn.get_parameters(grad_only=False)['spectral-norm/u']
+        assert_allclose(u_init_d, u.d)
 
     # Check args (cannot since this is the functions composite)
 
     # Check created parameters
-    assert len(nn.get_parameters(grad_only=False)) == 2
-    w_sn, u = [nn.get_parameters(grad_only=False)['spectral-norm/' + name]
-               for name in ['W_sn', 'u']]
+    assert len(nn.get_parameters(grad_only=False)) == 1
+    u = nn.get_parameters(grad_only=False)['spectral-norm/u']
 
 
 # util. for normalization tests
@@ -517,7 +516,8 @@ def check_normalization_params(f_name, p_shape, gamma_ref, beta_ref, no_scale, n
 @pytest.mark.parametrize('output_stat', [False, True])
 @pytest.mark.parametrize("fix_parameters", [False, True])
 @pytest.mark.parametrize('param_init', [None, True])
-@pytest.mark.parametrize('no_scale, no_bias', [(False, False), (True, True)])
+@pytest.mark.parametrize('no_scale', [False, True])
+@pytest.mark.parametrize('no_bias', [False, True])
 def test_pf_layer_normalization(g_rng, inshape, batch_axis, output_stat, fix_parameters, param_init, no_scale, no_bias):
     from nnabla.normalization_functions import _force_list, _get_axes_excluding, _apply_affine
 
@@ -600,7 +600,8 @@ def test_pf_layer_normalization(g_rng, inshape, batch_axis, output_stat, fix_par
 @pytest.mark.parametrize('output_stat', [False, True])
 @pytest.mark.parametrize("fix_parameters", [False, True])
 @pytest.mark.parametrize('param_init', [None, True])
-@pytest.mark.parametrize('no_scale, no_bias', [(False, False), (True, True)])
+@pytest.mark.parametrize('no_scale', [False, True])
+@pytest.mark.parametrize('no_bias', [False, True])
 def test_pf_instance_normalization(g_rng, inshape, batch_axis, channel_axis, output_stat,
                                    fix_parameters, param_init, no_scale, no_bias):
     from nnabla.normalization_functions import _force_list, _get_axes_excluding, _apply_affine
@@ -686,7 +687,8 @@ def test_pf_instance_normalization(g_rng, inshape, batch_axis, channel_axis, out
 @pytest.mark.parametrize('output_stat', [False, True])
 @pytest.mark.parametrize("fix_parameters", [False, True])
 @pytest.mark.parametrize('param_init', [None, True])
-@pytest.mark.parametrize('no_scale, no_bias', [(False, False), (True, True)])
+@pytest.mark.parametrize('no_scale', [False, True])
+@pytest.mark.parametrize('no_bias', [False, True])
 def test_pf_group_normalization(g_rng, num_groups, inshape, batch_axis, channel_axis, output_stat,
                                 fix_parameters, param_init, no_scale, no_bias):
     from nnabla.normalization_functions import _force_list, _get_axes_excluding, _apply_affine
@@ -1599,10 +1601,10 @@ def test_pf_transformer_decode_execution(g_rng, tgt_len, batch_size, embed_dim, 
 def test_pf_weight_norm_execution(g_rng, func):
     # python implementation
     def ref_weight_normalization(v, g, dim, eps=1e-12):
-        axis = tuple([i for i in range(len(v.shape)) if i != dim])
-        v_norm = np.sqrt(np.sum(v ** 2, axis=axis, keepdims=True) + eps)
-
-        return g * v / v_norm
+        # Use the same w in the initialization time.
+        # Since unless we use the same magnitude of weights,
+        # glorot/he initialization does not work as expected.
+        return v
 
     dim = {"conv": 0, "affine": 1}[func]
 
@@ -1610,7 +1612,7 @@ def test_pf_weight_norm_execution(g_rng, func):
 
     x = nn.Variable.from_numpy_array(g_rng.randn(2, 4, 5, 5))
     if func == "conv":
-        # assume channle first
+        # assume channel first
         y = PF.convolution(x, 8, (3, 3), apply_w=wn_clbk)
     elif func == "affine":
         y = PF.affine(x, 8, apply_w=wn_clbk)
@@ -1632,5 +1634,100 @@ def test_pf_weight_norm_execution(g_rng, func):
     w_np = ref_weight_normalization(v_np, 1, dim)
 
     assert_allclose(w.d, w_np, atol=1e-2, rtol=1e-5)
+
+
+@pytest.mark.parametrize("inshape, kernel, out_channels, pad, stride, dilation, group, deformable_group, base_axis", [
+    ((2, 4, 8, 8), (3, 2), 4, None, None, None, 1, 2, 1),
+    ((2, 4, 6, 6), (3, 2), 4, (0, 0), (1, 1), (1, 1), 2, 2, 1),
+    ((2, 2, 5, 7), (3, 3), 2, None, None, None, 1, 1, 1),
+    ((2, 2, 5, 7), (3, 3), 2, (1, 1), (1, 2), (2, 1), 1, 2, 1),
+    ((2, 2, 5, 7), (3, 3), 2, (1, 1), (1, 2), (2, 1), 2, 1, 1),
+ ])
+@pytest.mark.parametrize("w_init", [None, I.NormalInitializer(), True])
+@pytest.mark.parametrize("b_init", [None, I.ConstantInitializer(), True])
+@pytest.mark.parametrize("with_bias", [False, True])
+@pytest.mark.parametrize("fix_parameters", [False, True])
+@pytest.mark.parametrize("rng", [None, True])
+def test_pf_deformable_convolution_2d_execution(g_rng, inshape, kernel, out_channels, pad, stride, dilation, base_axis, w_init, b_init, group,
+                                                deformable_group, with_bias, fix_parameters, rng):
+    import platform
+    if platform.machine().startswith("arm"):
+        pytest.skip('Skip the arm platform temporarily.')
+
+    w_shape = (out_channels, inshape[base_axis] // group,) + kernel
+    b_shape = (out_channels,)
+    w_init = process_param_init(w_init, w_shape, g_rng)
+    b_init = process_param_init(b_init, b_shape, g_rng)
+    rng = process_rng(rng)
+
+    x = nn.Variable.from_numpy_array(np.random.rand(*inshape))
+
+    offset_channels = 2 * deformable_group * kernel[0] * kernel[1]
+    offset_shape = inshape[0:base_axis] + \
+        (offset_channels,) + inshape[base_axis + 1:]
+
+    rng_off_mask = np.random.RandomState(1223)
+    offset = (3.8 * rng_off_mask.rand(*offset_shape).astype(np.float32)) - 1.9
+    offset += np.logical_or(np.abs(offset - np.floor(offset)) < 0.1,
+                            np.abs(offset - np.ceil(offset)) < 0.1).astype(np.int)*0.5
+    offset = nn.Variable.from_numpy_array(offset)
+
+    mask_shape = inshape[0:base_axis] + \
+        (deformable_group * kernel[0] * kernel[1],) + inshape[base_axis + 1:]
+    mask = rng_off_mask.rand(*mask_shape).astype(np.float32)
+    mask = nn.Variable.from_numpy_array(mask)
+
+    kw = {}
+    insert_if_not_none(kw, 'pad', pad)
+    insert_if_not_none(kw, 'stride', stride)
+    insert_if_not_none(kw, 'dilation', dilation)
+    insert_if_not_none(kw, 'w_init', w_init)
+    insert_if_not_none(kw, 'b_init', b_init)
+    insert_if_not_none(kw, 'rng', rng)
+    insert_if_not_default(kw, 'group', group, 1)
+    insert_if_not_default(kw, 'deformable_group', deformable_group, 1)
+    insert_if_not_default(kw, 'base_axis', base_axis, 1)
+    insert_if_not_default(kw, 'fix_parameters', fix_parameters, False)
+    insert_if_not_default(kw, 'with_bias', with_bias, True)
+
+    # Check execution
+    y = PF.deformable_convolution(
+        x, out_channels, kernel, offset, mask, **kw)
+    y.forward()
+    y.backward()
+
+    # Check values
+    # Tested in test_forward_backward_2d in test_deformabl_convolution.py
+
+    # Check args
+    assert y.parent.info.type_name == 'DeformableConvolution'
+    args = y.parent.info.args
+    assert args['base_axis'] == base_axis
+    assert args['group'] == group
+    assert args['deformable_group'] == deformable_group
+    ndim = len(x.shape) - (base_axis + 1)
+    check_none_arg(tuple(args['pad']), pad, (0,) * ndim)
+    check_none_arg(tuple(args['stride']), stride, (1,) * ndim)
+    check_none_arg(tuple(args['dilation']), dilation, (1,) * ndim)
+
+    # Check created parameters
+    assert y.parent.inputs[0] == x
+    assert len(y.parent.inputs) == 4 + int(with_bias)
+    assert len(nn.get_parameters()) == 1 + int(with_bias)
+    w = nn.get_parameters()['deformable_conv/W']
+    assert w.shape == w_shape
+    assert w.need_grad
+    assert y.parent.inputs[1].need_grad == (not fix_parameters)
+    if isinstance(w_init, np.ndarray):
+        assert_allclose(w_init, w.d)
+    assert y.parent.inputs[2] == offset
+    assert y.parent.inputs[3] == mask
+    if with_bias:
+        b = nn.get_parameters()['deformable_conv/b']
+        assert b.shape == b_shape
+        assert b.need_grad
+        assert y.parent.inputs[4].need_grad == (not fix_parameters)
+        if isinstance(b_init, np.ndarray):
+            assert_allclose(b_init, b.d)
 
 # TODO: Test all parametric functions.

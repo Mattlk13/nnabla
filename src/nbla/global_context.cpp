@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,7 +23,10 @@ GlobalContext::~GlobalContext() {}
 
 Context GlobalContext::get_current_context() const { return current_; }
 
-void GlobalContext::set_current_context(const Context ctx) { current_ = ctx; }
+void GlobalContext::set_current_context(const Context ctx) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  current_ = ctx;
+}
 
 NBLA_INSTANTIATE_SINGLETON(NBLA_API, GlobalContext);
 }

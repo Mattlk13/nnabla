@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,10 +32,9 @@ install_requires = setup_requires + [
     'boto3',
     'configparser',
     'contextlib2',
-    'h5py',
+    'h5py<=3.1.0',
     'protobuf>=3.6',
     'pyyaml',
-    'requests',
     'scipy',
     'six',
     'tqdm',
@@ -44,16 +44,16 @@ install_requires = setup_requires + [
 
 if sys.platform == 'win32':
     install_requires.append('pywin32')
-else:
-    install_requires.append('onnx')
 
 
 def extopts(library_name, library_dir):
     import numpy as np
     include_dir = os.path.realpath(os.path.join(
         os.path.dirname(__file__), '../include'))
+    dlpack_include_dir = os.path.realpath(os.path.join(
+        os.path.dirname(__file__), '../include/third_party'))
     ext_opts = dict(
-        include_dirs=[include_dir, np.get_include()],
+        include_dirs=[include_dir, dlpack_include_dir, np.get_include()],
         libraries=[library_name],
         library_dirs=[library_dir],
         language="c++",
@@ -173,14 +173,19 @@ if __name__ == '__main__':
         'function',
         'solver',
         'communicator',
+        'callback',
+        'random',
         '_init',
         '_nd_array',
         '_computation_graph',
         '_array',
         '_arithmetic_ops',
-        '_indexing']
+        '_indexing',
+        'utils/dlpack',
+        'testing/clear_called_flag_recorder',
+        'lms']
 
-    ext_modules = [Extension('nnabla.{}'.format(mname),
+    ext_modules = [Extension('nnabla.{}'.format(mname.replace('/', '.')),
                              [os.path.join(path_pkg,
                                            '{}.pyx'.format(mname))],
                              **ext_opts) for mname in module_names]
@@ -212,8 +217,7 @@ if __name__ == '__main__':
     for root, dirs, files in os.walk(os.path.join(build_dir, 'bin')):
         for fn in files:
             if os.path.splitext(fn)[1] == '' or os.path.splitext(fn)[1] == '.exe':
-                if not os.path.isdir(os.path.join(path_pkg, 'bin')):
-                    os.makedirs(os.path.join(path_pkg, 'bin'))
+                os.makedirs(os.path.join(path_pkg, 'bin'), exist_ok=True)
                 shutil.copyfile(os.path.join(root, fn),
                                 os.path.join(path_pkg, 'bin', fn))
                 os.chmod(os.path.join(path_pkg, 'bin', fn), 0o755)
@@ -222,8 +226,7 @@ if __name__ == '__main__':
     for root, dirs, files in os.walk(os.path.join(build_dir, 'lib')):
         for fn in files:
             if os.path.splitext(fn)[1] == '.so' or os.path.splitext(fn)[1] == '.dylib':
-                if not os.path.isdir(os.path.join(path_pkg, 'bin')):
-                    os.makedirs(os.path.join(path_pkg, 'bin'))
+                os.makedirs(os.path.join(path_pkg, 'bin'), exist_ok=True)
                 shutil.copyfile(os.path.join(root, fn),
                                 os.path.join(path_pkg, 'bin', fn))
                 os.chmod(os.path.join(path_pkg, 'bin', fn), 0o755)
@@ -239,8 +242,18 @@ if __name__ == '__main__':
                                     os.path.join(path_pkg, fn))
                     package_data["nnabla"].append(fn)
 
-    package_dir = {'': src_dir}
+    # License information.
+    nnabla_root = os.path.abspath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), '..'))
+    os.makedirs(os.path.join(path_pkg, 'doc/third_party'), exist_ok=True)
+    for fn in ['LICENSE',
+               'NOTICE.md',
+               os.path.join('third_party', 'LICENSES.md')]:
+        shutil.copyfile(os.path.join(nnabla_root, fn),
+                        os.path.join(path_pkg, 'doc', fn))
+        package_data["nnabla"].append(os.path.join('doc', fn))
 
+    package_dir = {'': src_dir}
     packages = ['nnabla',
                 'nnabla.contrib',
                 'nnabla.experimental',
@@ -254,12 +267,11 @@ if __name__ == '__main__':
                 'nnabla.testing',
                 'nnabla.utils',
                 'nnabla.utils.inspection',
+                'nnabla.core',
                 'nnabla.utils.cli',
                 'nnabla.utils.converter',
                 'nnabla.utils.converter.nnabla',
                 'nnabla.utils.converter.nnablart',
-                'nnabla.utils.converter.onnx',
-                'nnabla.utils.converter.tensorflow',
                 'nnabla.utils.factorization',
                 'nnabla.utils.image_utils',
                 'nnabla.utils.image_utils.backend_events',

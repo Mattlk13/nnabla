@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,3 +43,14 @@ def test_matrix_diag_part_forward_backward(seed, ctx, func_name, shape):
     inputs = [rng.randn(*shape).astype(np.float32) * 0.1]
     function_tester(rng, F.matrix_diag_part, ref_matrix_diag_part, inputs, func_args=[],
                     atol_b=1e-3, ctx=ctx, func_name=func_name)
+
+
+@pytest.mark.parametrize("ctx, func_name", ctxs)
+@pytest.mark.parametrize("seed", [313])
+@pytest.mark.parametrize("shape", [(4, 3, 3), (8, 6, 4, 4)])
+def test_matrix_diag_part_double_backward(seed, ctx, func_name, shape):
+    from nbla_test_utils import backward_function_tester
+    rng = np.random.RandomState(seed)
+    inputs = [rng.randn(*shape).astype(np.float32) * 0.1]
+    backward_function_tester(rng, F.matrix_diag_part, inputs, func_args=[],
+                             ctx=ctx)

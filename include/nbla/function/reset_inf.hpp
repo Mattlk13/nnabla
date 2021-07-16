@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -34,6 +35,6 @@ Outputs:
 \ingroup FunctionImplGrp
  */
 NBLA_DEFINE_TRANSFORM_UNARY_1(ResetInf, std::isinf(x) ? (T)a0 : x,
-                              std::isinf(x) ? (T)0 : dy, false, double);
+                              std::isinf(x) ? (T)0 : dy, false, true, double);
 }
 #endif

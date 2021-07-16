@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 
 #ifndef __NBLA_GLOBAL_CONTEXT_HPP__
 #define __NBLA_GLOBAL_CONTEXT_HPP__
+#include <mutex>
 #include <nbla/defs.hpp>
 #include <nbla/singleton_manager.hpp>
 
@@ -23,6 +24,7 @@ Singleton class for storing global context.
 */
 class NBLA_API GlobalContext {
   Context current_;
+  std::mutex mutex_;
 
 public:
   ~GlobalContext();

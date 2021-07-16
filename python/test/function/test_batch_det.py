@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ def ref_det(x):
 
 @pytest.mark.parametrize("ctx, func_name", ctxs)
 @pytest.mark.parametrize("seed", [314])
-def test_batch_inv_forward_backward(seed, ctx, func_name):
+def test_batch_det_forward_backward(seed, ctx, func_name):
     from nbla_test_utils import function_tester
     rng = np.random.RandomState(seed)
     # input must be batched square matrix
@@ -39,3 +39,14 @@ def test_batch_inv_forward_backward(seed, ctx, func_name):
     function_tester(rng, F.batch_det, ref_det, inputs, ctx=ctx,
                     func_name=func_name, atol_b=2e-2, dstep=1e-4,
                     disable_half_test=True)
+
+
+@pytest.mark.parametrize("ctx, func_name", ctxs)
+@pytest.mark.parametrize("seed", [314])
+def test_batch_det_double_backward(seed, ctx, func_name):
+    from nbla_test_utils import backward_function_tester
+    rng = np.random.RandomState(seed)
+    # input must be batched square matrix
+    inputs = [np.clip(rng.randn(2, 3, 3).astype(np.float32), -0.9, 0.9)]
+    backward_function_tester(rng, F.batch_det, inputs, ctx=ctx, atol_accum=1e-1,
+                             skip_backward_check=True)

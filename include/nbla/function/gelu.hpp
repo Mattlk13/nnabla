@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -40,12 +41,12 @@ Outputs:
 NBLA_DEFINE_TRANSFORM_UNARY(
     GELU, (x / 2) * (1 + std::tanh((std::sqrt((T)(2 / M_PI)) *
                                     (x + (T)0.044715 * std::pow(x, 3))))),
-    (T)0.5 +
-        ((T)0.398942 * x + (T)0.0535161 * std::pow(x, 3)) *
-            std::pow(1 / std::cosh((T)0.797885 * x +
-                                   (T)0.0356774 * std::pow(x, 3)),
-                     2) +
-        (T)0.5 * std::tanh((T)0.797885 * x + (T)0.0356774 * std::pow(x, 3)),
-    true);
+    dy *(0.5 * (1 + std::tanh(std::sqrt((T)(2 / M_PI)) *
+                              (x + (T)0.044715 * std::pow(x, 3)))) +
+         0.5 * x * (1 - std::pow(std::tanh(std::sqrt((T)(2 / M_PI)) *
+                                           (x + (T)0.044715 * std::pow(x, 3))),
+                                 2)) *
+             std::sqrt((T)(2 / M_PI)) * (1 + 0.134145 * std::pow(x, 2))),
+    true, true);
 }
 #endif

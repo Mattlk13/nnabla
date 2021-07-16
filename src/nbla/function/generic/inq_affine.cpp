@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +17,7 @@
  */
 #include <nbla/array.hpp>
 #include <nbla/function/inq_affine.hpp>
+#include <nbla/random_manager.hpp>
 #include <nbla/variable.hpp>
 
 #include <algorithm>
@@ -37,7 +39,7 @@ void INQAffine<T, T1>::setup_impl(const Variables &inputs,
              "Indicators and weights must have same size. "
              "Ndim of weights: %d != ndim of indicators: %d.",
              inputs[1]->shape().size(), inputs[2]->shape().size());
-  for (int i = 0; i < inputs[1]->shape().size(); ++i) {
+  for (Shape_t::size_type i = 0; i < inputs[1]->shape().size(); ++i) {
     NBLA_CHECK(inputs[1]->shape()[i] == inputs[2]->shape()[i],
                error_code::value,
                "Indicators and weights must have same size. "
@@ -78,6 +80,10 @@ void INQAffine<T, T1>::setup_impl(const Variables &inputs,
 template <typename T, typename T1>
 void INQAffine<T, T1>::forward_impl(const Variables &inputs,
                                     const Variables &outputs) {
+  std::mt19937 &rgen =
+      seed_ == -1 ? SingletonManager::get<RandomManager>()->get_rand_generator()
+                  : rgen_;
+
   T *weights = inputs[1]->cast_data_and_get_pointer<T>(this->ctx_);
   T *old_weights = old_weights_.cast_data_and_get_pointer<T>(this->ctx_);
 
@@ -136,7 +142,7 @@ void INQAffine<T, T1>::forward_impl(const Variables &inputs,
         // random selection
         for (int i = 0; i < inputs[1]->size(); ++i) {
           if (indicators[i] == 0) {
-            indicators[i] = rdist_(rgen_);
+            indicators[i] = rdist_(rgen);
           }
         }
       }
@@ -195,6 +201,17 @@ void INQAffine<T, T1>::forward_impl(const Variables &inputs,
   // F: Store weights/indicators
   memcpy((void *)old_weights, weights, inputs[1]->size() * sizeof(T));
   memcpy((void *)old_indicators, indicators, inputs[1]->size() * sizeof(T1));
+}
+
+template <typename T, typename T1>
+void INQAffine<T, T1>::recompute_impl(const Variables &inputs,
+                                      const Variables &outputs) {
+  // Just exec affine with inputs which prepared in previous forward execution.
+  if (inputs.size() == 4) { // with bias
+    affine_->forward(Variables{inputs[0], inputs[1], inputs[3]}, outputs);
+  } else {
+    affine_->forward(Variables{inputs[0], inputs[1]}, outputs);
+  }
 }
 
 template <typename T, typename T1>

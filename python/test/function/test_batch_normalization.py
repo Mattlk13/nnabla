@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -122,12 +123,15 @@ def test_batch_normalization_forward_backward(seed, axis, decay_rate, eps,
         return
     else:
         inputs = mask_inputs(inputs, no_scale, no_bias, no_mean, no_variance)
+        insert_identity = []
+        if batch_stat:
+            insert_identity = [True, True, True, False, False]
         function_tester(rng, F.batch_normalization, ref_batch_normalization,
                         inputs,
                         func_args=[axes, decay_rate, eps,
                                    batch_stat, output_stat],
                         backward=[True, True, True, False, False],
-                        ctx=ctx, func_name=func_name, dstep=1e-2, atol_b=1e-2)
+                        ctx=ctx, func_name=func_name, dstep=1e-2, atol_b=1e-2, insert_identity=insert_identity)
 
     # Check if running mean and var works.
     if no_mean and no_variance:
@@ -237,17 +241,43 @@ def test_batch_normalization_for_multiple_axes_forward_backward(seed, axes, deca
 @pytest.mark.parametrize("decay_rate", [0.9])
 @pytest.mark.parametrize("eps", [1e-5])
 @pytest.mark.parametrize("output_stat, batch_stat", [[False, False], [False, True]])
+@pytest.mark.parametrize("no_scale, no_bias", [[False, False], [True, True]])
 @pytest.mark.parametrize("ctx, func_name", ctxs)
 def test_batch_normalization_double_backward(seed, axis, decay_rate, eps,
-                                             output_stat, batch_stat, ctx, func_name):
+                                             output_stat, batch_stat, no_scale, no_bias, ctx, func_name):
     from nbla_test_utils import backward_function_tester
+    from nnabla.backward_function.batch_normalization import BatchNormalizationBackward
+
     rng = np.random.RandomState(seed)
     inputs = list(create_inputs(rng, axis))
+    inputs = mask_vinputs(inputs, no_scale, no_bias, False, False)
+
     axes = [axis]
-    backward_function_tester(rng, F.batch_normalization, None,
+    func_args = [axes, decay_rate, eps, batch_stat, output_stat]
+
+    insert_identity = []
+    if batch_stat:
+        insert_identity = [True, True, True, False, False]
+
+    # 2nd-order
+    backward_function_tester(rng, F.batch_normalization,
                              inputs,
-                             func_args=[axes, decay_rate, eps,
-                                        batch_stat, output_stat],
-                             backward=[True, True, True, False, False],
-                             ctx=ctx, func_name=func_name,
-                             atol_b=2e-2, atol_accum=2e-2, dstep=1e-3)
+                             func_args=func_args,
+                             backward=[True, not no_bias,
+                                       not no_scale, False, False],
+                             ctx=ctx, atol_accum=1e-2, dstep=1e-3,
+                             insert_identity=insert_identity)
+    # 3rd-order
+    func_args = func_args[:-1] + [no_scale, no_bias]
+    df = BatchNormalizationBackward(ctx, *func_args)
+    ginputs = list(filter(lambda x: x is not None, [
+                   rng.randn(*inputs[0].shape)] + inputs))
+    if not no_scale and not no_bias:
+        backward = [True, True, False, True, False, False]
+    else:
+        backward = [True, True, False, False]
+    backward_function_tester(rng, df,
+                             inputs=ginputs,
+                             func_args=[],
+                             backward=backward,
+                             ctx=ctx, atol_accum=1e-2, dstep=1e-3, non_accum_check=True)

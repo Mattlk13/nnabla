@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -48,6 +49,6 @@ preprint arXiv:1602.02830 (2016).
 \ingroup FunctionImplGrp
  */
 NBLA_DEFINE_TRANSFORM_UNARY(BinaryTanh, (x > (T)0) ? (T)1 : (T)-1,
-                            (std::abs(x) >= (T)1) ? (T)0 : dy, false);
+                            (std::abs(x) >= (T)1) ? (T)0 : dy, false, true);
 }
 #endif

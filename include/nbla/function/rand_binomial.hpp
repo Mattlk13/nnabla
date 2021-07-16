@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -44,7 +45,8 @@ protected:
   float p_;
   const vector<int> shape_;
   int seed_;
-  std::mt19937 rgen_;
+  bool save_rng_ = false;
+  std::mt19937 rgen_, rgen_for_recompute_;
 
 public:
   RandBinomial(const Context &ctx, int n, float p, const vector<int> &shape,
@@ -70,6 +72,8 @@ public:
     return SingletonManager::get<Cpu>()->array_classes();
   }
   virtual string name() { return "RandBinomial"; }
+  virtual bool need_setup_recompute(int o) const { return true; }
+  virtual bool grad_depends_output_data(int i, int o) const { return false; }
 
 protected:
   NBLA_API virtual void setup_impl(const Variables &inputs,
@@ -80,6 +84,13 @@ protected:
                                       const Variables &outputs,
                                       const vector<bool> &propagate_down,
                                       const vector<bool> &accum);
+  NBLA_API virtual void setup_recompute_impl(const Variables &inputs,
+                                             const Variables &outputs);
+  NBLA_API virtual void recompute_impl(const Variables &inputs,
+                                       const Variables &outputs);
+  virtual bool grad_depends_input_data_impl(int i, int j) const {
+    return false;
+  }
 };
 }
 #endif

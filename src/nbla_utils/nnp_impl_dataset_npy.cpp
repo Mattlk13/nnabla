@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -489,6 +489,8 @@ DatasetNpyCache::DatasetNpyCache(const ::Dataset &dataset)
     c->preload();
     num_of_data_ += c->get_num_data();
   }
+
+  assert(cache_files.size() > 0);
 
   if (this->shuffle()) {
     int data_num = cache_files[0]->get_num_data();

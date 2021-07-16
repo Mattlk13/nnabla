@@ -1,4 +1,5 @@
-# Copyright (c) 2019 Sony Corporation. All Rights Reserved.
+# Copyright 2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,16 +16,16 @@
 from ..onnx import OnnxExporter
 from onnx_tf.backend import prepare
 import tensorflow as tf
-import nnabla.logger as logger
-from .common import find_out_terminal_node, check_optimization_criteria
+import os
+from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
 
 
 class TensorflowExporter:
-    def __init__(self, nnp, batch_size, enable_optimize=False):
+    def __init__(self, nnp, batch_size, model_format='TF_PB'):
         self._nnp = nnp
         self._batch_size = batch_size
+        self._model_format = model_format
         self.check_nnp_variable_name()
-        self._enable_optimize = enable_optimize
 
     def check_nnp_variable_name(self):
         def fix_variable_name(variable_name):
@@ -64,72 +65,17 @@ class TensorflowExporter:
 
     def execute(self, output):
         onnx_model = OnnxExporter(
-            self._nnp, self._batch_size, opset="9").export_model_proto()
+            self._nnp, self._batch_size, opset="11").export_model_proto()
         tf_rep = prepare(onnx_model)
-        if self._enable_optimize:
-            optimizable_state = check_optimization_criteria(
-                self._nnp, self._batch_size)
-            if optimizable_state['NCHW_TO_NHWC']['status']:
-                from .common import OptimizePb
-                optimize = OptimizePb(tf_rep.graph.as_graph_def()).execute()
-                optimize.export_to_file(output)
-                import json
-                doc_file = output.replace('.', '_') + '.json'
-                with open(doc_file, 'w') as f:
-                    json.dump(optimize.get_optimization_rate(), f)
-            else:
-                logger.warning(
-                    "Currently this model does not support optimization")
+        if self._model_format == 'TF_PB':
+            output_path = os.path.dirname(output)
+            tf_model = tf_rep.tf_module.__call__.get_concrete_function(
+                **tf_rep.signatures)
+            frozen_func = convert_variables_to_constants_v2(
+                tf_model, lower_control_flow=False)
+            tf.io.write_graph(graph_or_graph_def=frozen_func.graph,
+                              logdir=output_path,
+                              name=os.path.basename(output),
+                              as_text=False)
         else:
             tf_rep.export_graph(output)
-
-
-class TensorflowLiteExporter:
-    def __init__(self, nnp, batch_size, enable_optimize=False):
-        self._nnp = nnp
-        self._batch_size = batch_size
-        self._enable_optimize = enable_optimize
-
-    def check_tf_graph(self, graph):
-        for op in graph.get_operations():
-            if op.type == "Placeholder":
-                shape = graph.get_tensor_by_name(op.name+':0').shape
-                if len(shape) > 4:
-                    raise ValueError("Dims is larger than 4 is not supported.")
-
-    def execute(self, output):
-        onnx_model = OnnxExporter(
-            self._nnp, self._batch_size, opset="9").export_model_proto()
-        tf_rep = prepare(onnx_model)
-        self.check_tf_graph(tf_rep.graph)
-        graph_def = tf_rep.graph.as_graph_def()
-        if self._enable_optimize:
-            optimizable_state = check_optimization_criteria(
-                self._nnp, self._batch_size)
-            if optimizable_state['NCHW_TO_NHWC']['status']:
-                from .common import OptimizePb
-                optimize = OptimizePb(graph_def).execute()
-                graph_def = optimize.export_graph_def()
-                import json
-                doc_file = output.replace('.', '_') + '.json'
-                with open(doc_file, 'w') as f:
-                    json.dump(optimize.get_optimization_rate(), f)
-            else:
-                logger.warning(
-                    "Currently this model does not support optimization")
-        tf.reset_default_graph()
-        with tf.compat.v1.Session() as session:
-            _ = tf.import_graph_def(graph_def, name='')
-            inputs, outputs = find_out_terminal_node(
-                session.graph_def, postfix=True)
-
-            inputs_tensor = [
-                session.graph.get_tensor_by_name(inp) for inp in inputs]
-            outputs_tensor = [
-                session.graph.get_tensor_by_name(oup) for oup in outputs]
-
-            converter = tf.lite.TFLiteConverter.from_session(
-                session, inputs_tensor, outputs_tensor)
-            tflite_model = converter.convert()
-            with open(output, 'wb') as f:
-                f.write(tflite_model)

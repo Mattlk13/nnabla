@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import nnabla.utils.converter
 from .utils import create_nnabart_info
 from .utils import preprocess_for_exporter
 from .utils import revise_buffer_size
+from .resolver import Resolver
 
 NN_BINARY_FORMAT_VERSION = 2
 
@@ -58,6 +59,7 @@ class NnbExporter:
 
     def __init__(self, nnp, batch_size, nnb_version=NN_BINARY_FORMAT_VERSION,
                  api_level=-1):
+        nnp = Resolver(nnp).execute()
         self._info = create_nnabart_info(nnp, batch_size)
         self._api_level_info = nnabla.utils.converter.get_api_level_info()
         self._nnb_version = nnb_version

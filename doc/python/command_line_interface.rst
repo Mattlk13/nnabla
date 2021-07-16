@@ -325,7 +325,8 @@ File format converter
                               [--nnp-parameter-h5] [--nnp-parameter-nntxt]
                               [--nnp-exclude-parameter] [-T DEFAULT_VARIABLE_TYPE]
                               [-s SETTINGS] [-c CONFIG] [-d DEFINE_VERSION] [--api API]
-                              [--outputs OUTPUTS] [--inputs INPUTS] FILE [FILE ...]
+                              [--enable-optimize-pb] [--outputs OUTPUTS]
+                              [--inputs INPUTS] FILE [FILE ...]
     
     positional arguments:
       FILE                  File or directory name(s) to convert.
@@ -336,7 +337,7 @@ File format converter
     optional arguments:
       -h, --help            show this help message and exit
       -I IMPORT_FORMAT, --import-format IMPORT_FORMAT
-                            [import] import format. (one of [NNP,ONNX])
+                            [import] import format. (one of [NNP,ONNX,TF_CKPT_V1,TF_CKPT_V2,TF_PB,SAVED_MODEL,TFLITE])
       --nnp-no-expand-network
                             [import][NNP] expand network with repeat or recurrent.
       --outputs OUTPUTS
@@ -346,7 +347,9 @@ File format converter
                             [import][tensorflow] The name(s) of the input nodes, comma separated.
                                                  Only needed when convert CKPT format.
       -O EXPORT_FORMAT, --export-format EXPORT_FORMAT
-                            [export] export format. (one of [NNP,NNB,CSRC,ONNX])
+                            [export] export format. (one of [NNP,NNB,CSRC,ONNX,SAVED_MODEL,TFLITE,TF_PB],
+                                     the export file format is 'CSRC' or 'SAVED_MODEL' that
+                                     argument '--export-format' will have to be set!!!)
       -f, --force           [export] overwrite output file.
       -b BATCH_SIZE, --batch-size BATCH_SIZE
                             [export] overwrite batch size.
@@ -367,7 +370,11 @@ File format converter
                             [export][ONNX] define convert to onnx for TensorRT. e.g. opset_tensorrt
                             [export][NNB] define binary format version. e.g. nnb_3
       --api API             [export][NNB] Set API Level to convert to, default is highest API Level.
-      --enabla-optimize-pb  [export][tensorflow] enable optimization when export to pb or tflite.
+      --enable-optimize-pb  [export][tensorflow] enable optimization when export to pb.
+      --channel_last        [export][TFLite] Specify the data_format of the NNP network,
+                                             data_format default is channel_first.
+      --quantization        [export][TFLite] export to INT8 quantized tflite model.
+      --dataset             [export][TFLite] Specify the path of represent dataset which will be passed to INT8 quantized tflite converter.
 
 Optimize pb model
 -----------------

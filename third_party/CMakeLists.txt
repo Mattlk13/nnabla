@@ -13,7 +13,7 @@ function(download_and_extract_library NAME EXT URL)
       if(UNIX OR APPLE)
         message("Failed to download ${NAME}. Try to download with wget.")
         execute_process(
-          COMMAND wget ${URL} -O ${CMAKE_SOURCE_DIR}/third_party/${NAME}${EXT})
+          COMMAND wget ${WGET_OPTS} ${URL} -O ${CMAKE_SOURCE_DIR}/third_party/${NAME}${EXT})
       else()
         message(FATAL_ERROR "Failed to download ${NAME}. Please check network connection and proxy settings.
         status_code: ${status_code}
@@ -22,7 +22,7 @@ function(download_and_extract_library NAME EXT URL)
         ")
         error() # Place Unknown command to stop cmake process here.
       endif()
-      
+
     endif()
     execute_process(
       COMMAND ${CMAKE_COMMAND} -E
@@ -41,14 +41,13 @@ if(NNABLA_UTILS_WITH_HDF5)
   install(EXPORT nbla_utils-hdf5-targets DESTINATION "trash")
 endif()
 
-download_and_extract_library(eigen-git-mirror-3.3.5 .zip https://github.com/eigenteam/eigen-git-mirror/archive/3.3.5.zip)
+download_and_extract_library(eigen-3.3.5 .zip https://gitlab.com/libeigen/eigen/-/archive/3.3.5/eigen-3.3.5.zip)
 
 if(BUILD_TEST)
-  download_and_extract_library(googletest-release-1.7.0 .zip https://github.com/google/googletest/archive/release-1.7.0.zip)
-  add_subdirectory(googletest-release-1.7.0)
+  download_and_extract_library(googletest-release-1.10.0 .zip https://github.com/google/googletest/archive/release-1.10.0.zip)
+  add_subdirectory(googletest-release-1.10.0)
 endif()
 
 if(BUILD_CPP_UTILS)
   download_and_extract_library(cmdline-master .zip https://github.com/tanakh/cmdline/archive/master.zip)
 endif()
-  

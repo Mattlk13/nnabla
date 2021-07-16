@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,12 +29,11 @@ void Add2<T>::setup_impl(const Variables &inputs, const Variables &outputs) {
     outputs[0]->reshape(inputs[0]->shape(), true);
     if (inplace_) {
       outputs[0]->data()->set_array(inputs[0]->data()->array());
-      outputs[0]->grad()->set_array(inputs[0]->grad()->array());
     }
     return;
   }
   // Trying to fallback to broadcastable Add2.
-  this->fall_back_func_ = create_BcAdd2(this->ctx_);
+  this->fall_back_func_ = create_BcAdd2(this->ctx_, inplace_);
   this->fall_back_func_->setup(inputs, outputs);
 }
 
@@ -69,16 +68,12 @@ void Add2<T>::backward_impl(const Variables &inputs, const Variables &outputs,
 
   for (int i = 0; i < 2; ++i) {
     if (propagate_down[i]) {
-      T *dx = inputs[i]->cast_grad_and_get_pointer<T>(
-          this->ctx_, !((i == 0 && inplace_) || accum[i]));
-      // dx == dy at i = 1 never happens.
-      if (dx != dy) {
-        // Not in-place
-        if (accum[i])
-          add2_backward_cpu<T, true>(size, dx, dy);
-        else
-          add2_backward_cpu<T, false>(size, dx, dy);
-      }
+      T *dx = inputs[i]->cast_grad_and_get_pointer<T>(this->ctx_,
+                                                      !(i == 0 || accum[i]));
+      if (accum[i])
+        add2_backward_cpu<T, true>(size, dx, dy);
+      else
+        add2_backward_cpu<T, false>(size, dx, dy);
     }
   }
 }

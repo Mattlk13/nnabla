@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -69,3 +70,19 @@ def test_random_flip_forward_backward(seed, axes, ctx, func_name):
     i.need_grad = False
     o.backward(o_grad)
     assert np.all(i.g == 0)
+
+
+@pytest.mark.parametrize("ctx, func_name", ctxs)
+@pytest.mark.parametrize("seed", [313])
+@pytest.mark.parametrize("axes", [None, (1,), (2,)])
+@pytest.mark.parametrize("func_seed", [412, -1])
+def test_random_flip_recomputation(seed, axes, func_seed, ctx, func_name):
+    from nbla_test_utils import recomputation_test
+
+    rng = np.random.RandomState(seed)
+    vinputs = [nn.Variable((5, 4, 3))]
+
+    base_axis = 2
+    func_args = [axes, base_axis, func_seed]
+    recomputation_test(rng=rng, func=F.random_flip, vinputs=vinputs,
+                       func_args=func_args, func_kwargs={}, ctx=ctx)

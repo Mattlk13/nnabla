@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 
 #include "nnp_impl.hpp"
 #include <nbla/solver.hpp>
+#include <nbla/solver/adabelief.hpp>
 #include <nbla/solver/adadelta.hpp>
 #include <nbla/solver/adagrad.hpp>
 #include <nbla/solver/adam.hpp>
@@ -21,6 +22,7 @@
 #include <nbla/solver/momentum.hpp>
 #include <nbla/solver/nesterov.hpp>
 #include <nbla/solver/rmsprop.hpp>
+#include <nbla/solver/rmsprop_graves.hpp>
 #include <nbla/solver/sgd.hpp>
 
 namespace nbla {
@@ -35,6 +37,13 @@ shared_ptr<nbla::Solver> OptimizerImpl::create_solver(const ::Solver &solver) {
   if (solver.type() == "Adagrad") {
     AdagradParameter param = solver.adagrad_param();
     return create_AdagradSolver(ctx_, param.lr(), param.eps());
+  }
+  if (solver.type() == "AdaBelief") {
+    AdaBeliefParameter param = solver.adabelief_param();
+    return create_AdaBeliefSolver(ctx_, param.alpha(), param.beta1(),
+                                  param.beta2(), param.eps(), param.wd(),
+                                  param.amsgrad(), param.weight_decouple(),
+                                  param.fixed_decay(), param.rectify());
   }
   if (solver.type() == "Adam") {
     AdamParameter param = solver.adam_param();
@@ -57,6 +66,11 @@ shared_ptr<nbla::Solver> OptimizerImpl::create_solver(const ::Solver &solver) {
   if (solver.type() == "RMSprop") {
     RMSpropParameter param = solver.rmsprop_param();
     return create_RMSpropSolver(ctx_, param.lr(), param.decay(), param.eps());
+  }
+  if (solver.type() == "RMSpropGraves") {
+    RMSpropGravesParameter param = solver.rmsprop_graves_param();
+    return create_RMSpropGravesSolver(ctx_, param.lr(), param.decay(),
+                                      param.momentum(), param.eps());
   }
   if (solver.type() == "Sgd") {
     SgdParameter param = solver.sgd_param();

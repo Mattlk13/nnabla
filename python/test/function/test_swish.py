@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,11 +43,9 @@ def test_swish_double_backward(seed, ctx, func_name):
         cap_ignore_region(
             rng.randn(2, 3, 4).astype(np.float32) * 2,
             (-1e-3, 1e-3))]
-    backward_function_tester(rng, F.swish, None,
+    backward_function_tester(rng, F.swish,
                              inputs=inputs,
                              func_args=[], func_kwargs={},
-                             atol_b=1e-2,
                              atol_accum=1e-2,
                              dstep=1e-3,
-                             ctx=ctx, func_name=None,
-                             disable_half_test=False)
+                             ctx=ctx)

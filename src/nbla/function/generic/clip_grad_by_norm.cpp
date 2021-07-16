@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ void ClipGradByNorm<T>::setup_impl(const Variables &inputs,
                                    const Variables &outputs) {
   outputs[0]->reshape(inputs[0]->shape(), true);
   sum_ = create_Sum(this->ctx_, axes_, true);
-  pow_scalar_ = create_PowScalar(this->ctx_, 2.);
+  pow_scalar_ = create_PowScalar(this->ctx_, 2., false);
 
   vector<int> _shape;
   for (auto v : inputs[0]->shape()) {

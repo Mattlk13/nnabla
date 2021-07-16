@@ -22,7 +22,9 @@ List of solvers
 .. autofunction:: Nesterov
 .. autofunction:: Adadelta
 .. autofunction:: Adagrad
+.. autofunction:: AdaBelief
 .. autofunction:: RMSprop
+.. autofunction:: RMSpropGraves
 .. autofunction:: Adam
 .. autofunction:: AdaBound
 .. autofunction:: Adamax

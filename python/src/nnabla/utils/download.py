@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,8 +16,7 @@
 
 from nnabla.logger import logger
 
-import six.moves.urllib.request as request
-import six
+import urllib.request as request
 from tqdm import tqdm
 import os
 
@@ -57,10 +57,7 @@ def download(url, output_file=None, open_file=True, allow_overwrite=False):
     else:
         r = request.urlopen(url)
         try:
-            if six.PY2:
-                content_length = int(r.info().dict['content-length'])
-            elif six.PY3:
-                content_length = int(r.info()['Content-Length'])
+            content_length = int(r.headers.get('Content-Length'))
         except:
             content_length = 0
         unit = 1000000
@@ -73,6 +70,7 @@ def download(url, output_file=None, open_file=True, allow_overwrite=False):
                 if l == 0:
                     break
                 content += data
+        r.close()
         with open(cache, 'wb') as f:
             f.write(content)
     if not open_file:

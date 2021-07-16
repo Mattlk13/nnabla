@@ -1,4 +1,4 @@
-# Copyright (c) 2020 Sony Corporation. All Rights Reserved.
+# Copyright 2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -185,6 +185,7 @@ def create_inputs(rng, kernel, pad, stride, dilation, group, with_bias, bn, add2
     # TODO will make channel_last=True once conv cpu supports it
     (True, None, True, False),
     (False, False, False, False),
+    (True, None, False, False),
 ])
 @pytest.mark.parametrize("nonlinearity, nonlinearity_args", [
     ('identity', []),

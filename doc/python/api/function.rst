@@ -13,6 +13,11 @@ Function
 .. autoclass:: Function
    :members:
 
+.. autoclass:: PythonFunction
+   :members:
+
+   .. automethod:: __init__
+
 .. _functions:
 
 List of Functions
@@ -24,9 +29,10 @@ The :mod:`nnabla.functions` module provides various types of functions listed be
 These functions takes input :class:`nnabla.Variable` (s) as its leading argument(s), followed by options
 specific to each function.
 
-Note:
-    The functions can also take :obj:`~nnabla.NdArray`s as inputs instead
-    of :obj:`~nnabla.Variable`s. It will execute the function operation immediately,
+.. note::
+
+    The functions can also take :obj:`~nnabla.NdArray` (s) as inputs instead
+    of :obj:`~nnabla.Variable` (s). It will execute the function operation immediately,
     and returns :obj:`~nnabla.NdArray` (s) as output(s) holding output values of the
     operation. We call this "Imperative Mode" (NdArray + Functions).
 
@@ -39,6 +45,7 @@ Neural Network Layers
 .. autofunction:: depthwise_convolution
 .. autofunction:: deconvolution
 .. autofunction:: depthwise_deconvolution
+.. autofunction:: deformable_convolution
 .. autofunction:: adaptive_separable_convolution
 .. TODO: List fused_convolution once it becomes useful.
 .. autofunction:: max_pooling
@@ -68,6 +75,7 @@ Neural Network Activation
 .. autofunction:: crelu
 .. autofunction:: celu
 .. autofunction:: gelu
+.. autofunction:: mish
 .. autofunction:: prelu
 .. autofunction:: leaky_relu
 .. autofunction:: relu6
@@ -87,6 +95,7 @@ Normalization
 .. autofunction:: fused_batch_normalization
 .. autofunction:: sync_batch_normalization
 .. autofunction:: mean_subtraction
+.. autofunction:: norm_normalization
 .. autofunction:: clip_by_value
 .. autofunction:: clip_grad_by_value
 .. autofunction:: clip_by_norm
@@ -95,6 +104,8 @@ Normalization
 .. autofunction:: instance_normalization
 .. autofunction:: group_normalization
 .. autofunction:: weight_standardization
+.. autofunction:: weight_normalization
+.. autofunction:: spectral_norm
 
 
 Reduction
@@ -104,6 +115,7 @@ Reduction
 .. autofunction:: mean
 .. autofunction:: max
 .. autofunction:: min
+.. autofunction:: norm 
 .. autofunction:: prod
 .. autofunction:: reduce_sum
 .. autofunction:: reduce_mean
@@ -125,6 +137,7 @@ Arithmetic
 .. autofunction:: r_sub_scalar
 .. autofunction:: r_div_scalar
 .. autofunction:: r_pow_scalar
+
 
 Logical
 -------
@@ -188,6 +201,8 @@ Math
 .. autofunction:: asinh
 .. autofunction:: acosh
 .. autofunction:: atanh
+.. autofunction:: cumsum
+.. autofunction:: cumprod
 
 
 Array Manipulation
@@ -197,13 +212,16 @@ Array Manipulation
 .. autofunction:: split
 .. autofunction:: stack
 .. autofunction:: slice
+.. autofunction:: gather
 .. autofunction:: gather_nd
 .. autofunction:: scatter_nd
+.. autofunction:: scatter_add
 .. autofunction:: pad
 .. autofunction:: transpose
 .. autofunction:: broadcast
 .. autofunction:: broadcast_to
 .. autofunction:: tile
+.. autofunction:: meshgrid
 .. autofunction:: flip
 .. autofunction:: shift
 .. autofunction:: sort
@@ -211,9 +229,13 @@ Array Manipulation
 .. autofunction:: one_hot
 .. autofunction:: batch_inv
 .. autofunction:: batch_det
+.. autofunction:: batch_logdet
 .. autofunction:: assign
 .. autofunction:: top_k_data
 .. autofunction:: top_k_grad
+.. autofunction:: pack_padded_sequence
+.. autofunction:: pad_packed_sequence
+.. autofunction:: searchsorted
 
 
 Stochasticity
@@ -256,6 +278,12 @@ Signal Processing
 .. autofunction:: stft
 .. autofunction:: istft
 
+Geometric Neural Network Layers
+-------------------------------
+.. autofunction:: affine_grid
+.. autofunction:: warp_by_grid
+.. autofunction:: warp_by_flow
+
 Quantized Neural Network Layers
 ----------------------------------
 
@@ -279,7 +307,6 @@ Unsupported, Special Use
 .. autofunction:: vat_noise
 .. autofunction:: unlink
 .. autofunction:: sink
-.. autofunction:: warp_by_flow
 .. autofunction:: confusion_matrix
 
 

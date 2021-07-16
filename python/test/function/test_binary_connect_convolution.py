@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -89,8 +90,9 @@ def test_convolution_2d_forward_backward(inshape, kernel, outmaps, pad, stride,
     if with_bias:
         b = rng.randn(outmaps).astype(np.float32)
     inputs = [i, k, np.zeros_like(k), b]
+    insert_identity = [True, True, False, True]
     function_tester(rng, F.binary_connect_convolution, ref_binary_connect_convolution, inputs,
                     func_args=[base_axis, pad, stride,
                                dilation, group, quantize_zero_to],
                     atol_f=1e-4, atol_b=3e-3, atol_accum=1e-5, dstep=1e-2, backward=[True, True, False, True],
-                    ctx=ctx, func_name=func_name, ref_grad=ref_grad_binary_connect_convolution)
+                    ctx=ctx, func_name=func_name, ref_grad=ref_grad_binary_connect_convolution, insert_identity=insert_identity)

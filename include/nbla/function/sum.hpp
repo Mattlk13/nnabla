@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -42,7 +43,6 @@ protected:
   bool keep_dims_;
   int reduction_size_;
   shared_ptr<Function> f_transpose_{nullptr};
-  shared_ptr<Variable> o_transpose_{nullptr};
 
 public:
   Sum(const Context &ctx, const vector<int> &axes, bool keep_dims)
@@ -65,6 +65,7 @@ public:
   virtual vector<string> allowed_array_classes() {
     return SingletonManager::get<Cpu>()->array_classes();
   }
+  virtual bool grad_depends_output_data(int i, int o) const { return false; }
 
 protected:
   NBLA_API virtual void setup_impl(const Variables &inputs,
@@ -80,6 +81,10 @@ protected:
                                             int reduction_size);
   NBLA_API virtual void backward_impl_reduce(const T *dy, T *dx, int outer_size,
                                              int reduction_size, bool accum);
+
+  virtual bool grad_depends_input_data_impl(int i, int j) const {
+    return false;
+  }
 };
 }
 #endif

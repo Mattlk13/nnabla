@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -88,20 +88,20 @@ void MinMaxQuantize<T>::setup_impl(const Variables &inputs,
   }
   // Compute broadcast shape
   std::vector<int> bshape(x->shape().size());
-  for (int i = 0; i < x->shape().size(); i++) {
+  for (Shape_t::size_type i = 0; i < x->shape().size(); i++) {
     bshape[i] = x->shape()[i];
   }
   // Create functions needed to compute the min-max quantization
   identity_ = create_Identity(this->ctx_);
   round_ = create_Round(this->ctx_);
   add2_ = create_Add2(this->ctx_, false);
-  sub2_ = create_Sub2(this->ctx_);
-  mul2_ = create_Mul2(this->ctx_);
-  div2_ = create_Div2(this->ctx_);
+  sub2_ = create_Sub2(this->ctx_, false);
+  mul2_ = create_Mul2(this->ctx_, false);
+  div2_ = create_Div2(this->ctx_, false);
   minimum2_ = create_Minimum2(this->ctx_);
   maximum2_ = create_Maximum2(this->ctx_);
-  mul_scalar_ = create_MulScalar(this->ctx_, (T)(decay_));
-  mul_scalar2_ = create_MulScalar(this->ctx_, (T)(1.0 - decay_));
+  mul_scalar_ = create_MulScalar(this->ctx_, (T)(decay_), false);
+  mul_scalar2_ = create_MulScalar(this->ctx_, (T)(1.0 - decay_), false);
   min_ = create_Min(this->ctx_, axes, true, false, false);
   max_ = create_Max(this->ctx_, axes, true, false, false);
   broadcast_ = create_Broadcast(this->ctx_, bshape);

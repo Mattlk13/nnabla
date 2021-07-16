@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -36,6 +36,11 @@ NBLA_API vector<NdArrayPtr> execute(FunctionPtr func,
 
 NBLA_API void execute(FunctionPtr f, const Variables &inputs,
                       const Variables &outputs);
+
+NBLA_API void backward(FunctionPtr f, const Variables &inputs,
+                       const Variables &outputs,
+                       const vector<bool> &propagate_down,
+                       const vector<bool> &accum, bool with_setup = false);
 }
 
 #endif

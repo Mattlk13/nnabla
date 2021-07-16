@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,15 +35,14 @@ def test_pow_scalar_forward_backward(seed, val, ctx, func_name):
 @pytest.mark.parametrize("ctx, func_name", ctxs)
 @pytest.mark.parametrize("seed", [313])
 @pytest.mark.parametrize("val", [0.5, 1, 2])
-def test_pow_scalar_double_backward(seed, val, ctx, func_name):
+@pytest.mark.parametrize("inplace", [False, True])
+def test_pow_scalar_double_backward(seed, val, ctx, func_name, inplace):
     from nbla_test_utils import backward_function_tester
     rng = np.random.RandomState(seed)
     inputs = [(rng.randint(5, size=(2, 3)).astype(np.float32) + 1.0) * 0.2]
-    backward_function_tester(rng, F.pow_scalar, None,
+    backward_function_tester(rng, F.pow_scalar,
                              inputs=inputs,
-                             func_args=[val], func_kwargs={},
-                             atol_b=1e-2,
+                             func_args=[val, inplace], func_kwargs={},
                              atol_accum=1e-2,
                              dstep=1e-3,
-                             ctx=ctx, func_name=None,
-                             disable_half_test=False)
+                             ctx=ctx)

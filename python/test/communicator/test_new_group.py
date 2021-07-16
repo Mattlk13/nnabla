@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ import nnabla.parametric_functions as PF
 import numpy as np
 
 
+@pytest.mark.skip("Skip until nccl is fixed.")
 @pytest.mark.parametrize("seed", [313])
 def test_new_group(seed, comm_nccl_opts):
     if comm_nccl_opts is None:

@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -39,7 +40,12 @@ void MeanSubtraction<T>::setup_impl(const Variables &inputs,
 
   // Check shape
   Shape_t shape_i = inputs[0]->shape();
-  NBLA_CHECK(base_axis_ < shape_i.size(), error_code::value,
+  if (this->base_axis_ < 0)
+    this->base_axis_ += shape_i.size();
+  NBLA_CHECK(base_axis_ >= 0, error_code::value,
+             "base_axis may not be less than zero, got %d", base_axis_);
+  auto base_axis = static_cast<Shape_t::size_type>(base_axis_);
+  NBLA_CHECK(base_axis < shape_i.size(), error_code::value,
              "base_axis must be less than ndim of inputs[0]. "
              "base_axis: %d >= ndim of inputs[0]: %d.",
              base_axis_, shape_i.size());
@@ -74,6 +80,12 @@ void MeanSubtraction<T>::forward_impl(const Variables &inputs,
   } else { // Testing mode.
     forward_impl_global(inputs, outputs);
   }
+}
+
+template <class T>
+void MeanSubtraction<T>::recompute_impl(const Variables &inputs,
+                                        const Variables &outputs) {
+  forward_impl_global(inputs, outputs);
 }
 
 template <class T>

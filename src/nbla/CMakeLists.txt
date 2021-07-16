@@ -1,4 +1,4 @@
-# Copyright (c) 2019 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,7 +24,8 @@ file(GLOB SOURCES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
   function/*.cpp
   function/utils/*.cpp
   function/nontemplate/*.cpp
-  computation_graph/*.cpp)
+  computation_graph/*.cpp
+  lms/*.cpp)
 
 # add version info into DLL
 if (WIN32)
@@ -48,6 +49,9 @@ set_property(TARGET ${LIB_NAME} PROPERTY CXX_STANDARD 11)
 
 install(TARGETS ${LIB_NAME} LIBRARY DESTINATION lib)
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/nbla DESTINATION include)
+install(FILES ${PROJECT_SOURCE_DIR}/LICENSE ${PROJECT_SOURCE_DIR}/NOTICE.md
+  DESTINATION doc)
+install(FILES ${PROJECT_SOURCE_DIR}/third_party/LICENSES.md DESTINATION doc/third_party)
 include(CPack)
 
 set(NBLA_LIBRARY_NAME ${LIB_NAME} PARENT_SCOPE)

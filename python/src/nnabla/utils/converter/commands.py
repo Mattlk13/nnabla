@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,19 +27,6 @@ from .utils import func_set_import_nnp, \
 
 
 def _import_file(args, ifiles):
-    if len(ifiles) == 1:
-        ext = os.path.splitext(ifiles[0])[1]
-        if ext == '.nnp':
-            args.import_format = 'NNP'
-        elif ext == '.onnx':
-            args.import_format = 'ONNX'
-        elif ext == '.pb':
-            args.import_format = "TF_PB"
-        elif ext == '.ckpt':
-            args.import_format = "TF_CKPT_V1"
-        elif ext == '.meta':
-            args.import_format = "TF_CKPT_V2"
-
     if args.import_format == 'NNP':
         # Input file that has unsupported extension store into output nnp
         # archive or directory.
@@ -52,9 +40,13 @@ def _import_file(args, ifiles):
 
     elif args.import_format == 'TF_PB' or \
             args.import_format == 'TF_CKPT_V1' or \
-            args.import_format == "TF_CKPT_V2":
+            args.import_format == "TF_CKPT_V2" or \
+            args.import_format == "SAVED_MODEL":
         from .tensorflow import TensorflowImporter
         return TensorflowImporter(*ifiles, tf_format=args.import_format, outputs=args.outputs, inputs=args.inputs).execute()
+    elif args.import_format == 'TFLITE':
+        from .tflite import TFLiteImporter
+        return TFLiteImporter(*ifiles).execute()
     return None
 
 
@@ -137,9 +129,8 @@ def _shrink_nnp(nnp, pos_start, pos_end):
     return _nnp
 
 
-def _export_from_nnp(args, nnp, output, output_ext):
-    if (os.path.isdir(output) and args.export_format == 'NNP') \
-            or output_ext == '.nnp':
+def _export_from_nnp(args, nnp, output):
+    if args.export_format == 'NNP':
         parameter_type = 'protobuf'
         if args.nnp_parameter_nntxt:
             parameter_type = 'included'
@@ -149,7 +140,7 @@ def _export_from_nnp(args, nnp, output, output_ext):
             parameter_type = 'none'
         NnpExporter(nnp, args.batch_size, parameter_type).execute(output)
 
-    elif output_ext == '.nnb':
+    elif args.export_format == 'NNB':
         if args.batch_size < 0:
             print('NNB: Batch size adjust to 1.')
             print('NNB: If you want to use with other size use `-b` option.')
@@ -162,30 +153,31 @@ def _export_from_nnp(args, nnp, output, output_ext):
             NnbExporter(nnp, args.batch_size, api_level=args.api).execute(
                 output, None, args.settings, args.default_variable_type)
 
-    elif os.path.isdir(output) and args.export_format == 'CSRC':
+    elif args.export_format == 'CSRC':
         if args.batch_size < 0:
             print('CSRC: Batch size adjust to 1.')
             print('CSRC: If you want to use with other size use `-b` option.')
             args.batch_size = 1
         CsrcExporter(nnp, args.batch_size).execute(output)
 
-    elif output_ext == '.onnx':
+    elif args.export_format == 'ONNX':
         from .onnx import OnnxExporter
         if args.define_version and args.define_version.startswith('opset_'):
             opset = args.define_version.split("_")[1]
             OnnxExporter(nnp, args.batch_size, opset=opset).execute(output)
         else:
             OnnxExporter(nnp, args.batch_size).execute(output)
-    elif output_ext == '.pb':
+    elif args.export_format == 'SAVED_MODEL' or args.export_format == 'TF_PB':
         from .tensorflow import TensorflowExporter
-        TensorflowExporter(
-            nnp, args.batch_size, enable_optimize=args.enable_optimize_pb).execute(output)
-    elif output_ext == '.tflite':
-        from .tensorflow import TensorflowLiteExporter
-        TensorflowLiteExporter(
-            nnp, args.batch_size, enable_optimize=args.enable_optimize_pb).execute(output)
+        TensorflowExporter(nnp, args.batch_size,
+                           model_format=args.export_format).execute(output)
+    elif args.export_format == 'TFLITE':
+        from .tflite import TFLiteExporter
+        TFLiteExporter(nnp, args.batch_size,
+                       channel_last=args.channel_last, quantization=args.quantization,
+                       dataset=args.dataset).execute(output)
     else:
-        print('Output file ({})'.format(output_ext) +
+        print('Output file ({})'.format(args.export_format) +
               ' is not supported or output directory does not exist.')
         return False
     return True
@@ -256,17 +248,16 @@ def _get_split_ranges(nnp, args, supported_set):
 
 
 def convert_files(args, ifiles, output):
-    output_ext = os.path.splitext(output)[1].lower()
     nnp = _import_file(args, ifiles)
     if nnp is not None:
         network_name = nnp.protobuf.executor[0].network_name
-        if output_ext == '.onnx':
+        if args.export_format == 'ONNX':
             if args.config:
                 support_set = func_set_onnx_support() & \
                               func_set_import_onnx_config(args.config)
             else:
                 support_set = func_set_onnx_support()
-        elif output_ext == '.nnb':
+        elif args.export_format == 'NNB':
             if args.config:
                 support_set = func_set_import_config(args.config)
             else:
@@ -310,11 +301,11 @@ def convert_files(args, ifiles, output):
                         _info['shape'] = '({})'.format(
                             ', '.join(str(i) for i in var.shape.dim))
                         nnb_info[new_output]['output'].append(_info)
-                _export_from_nnp(args, _nnp, new_output, output_ext)
+                _export_from_nnp(args, _nnp, new_output)
             import yaml
             print(yaml.dump(nnb_info, default_flow_style=False))
         else:
-            return _export_from_nnp(args, nnp, output, output_ext)
+            return _export_from_nnp(args, nnp, output)
     else:
         print('Import from {} failed.'.format(ifiles))
         return False

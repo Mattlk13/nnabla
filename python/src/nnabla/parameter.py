@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,8 +27,8 @@ import zipfile
 import nnabla as nn
 from nnabla.logger import logger
 import nnabla.utils.nnabla_pb2 as nnabla_pb2
-from nnabla.utils.get_file_handle import get_file_handle_load
-from nnabla.utils.get_file_handle import get_file_handle_save
+from nnabla.utils.get_file_handle import get_parameter_file_loader, load_files, FileHandlerContext
+from nnabla.utils.get_file_handle import get_file_handle_save, get_parameter_file_savers, save_files
 
 # TODO temporary work around to suppress FutureWarning message.
 import warnings
@@ -35,6 +36,7 @@ warnings.simplefilter('ignore', category=FutureWarning)
 
 current_scope = OrderedDict()
 root_scope = current_scope
+current_no_grad = False
 
 
 def get_current_parameter_scope():
@@ -42,6 +44,56 @@ def get_current_parameter_scope():
     """
     global current_scope
     return current_scope
+
+
+@contextmanager
+def no_grad(no_grad_=True):
+    """No gradients for the whole network.
+
+    No gradients are required when creating a network, such that when the forward pass is executed,
+    all intermediate buffers except for the leafs in the network are gone at the same time, resulting in
+    memory optimization.
+
+    This is useful for example when an output of a pre-trained network is used for an input to
+    another network, where the first pre-trained network does not need to be fine-tuned, but the other
+    network is optimized.
+
+    Args:
+
+        no_grad_ (bool): No gradient flag. Default is True.
+
+    Example:
+
+    .. code-block:: python
+
+        with nn.no_grad():
+            output0 = <Network0>(<input0>)
+
+        output1 = <Network1>(<input1>, output0)
+        loss = <Loss>(output1, <ground_truth>)
+        loss.forward(clear_no_need_grad=True)
+
+
+    This context also works in the dynamic mode.
+
+    .. code-block:: python
+
+        with nn.auto_forward(), nn.no_grad():
+            output0 = <Network0>(<input0>)
+
+    Note:
+        When working with the static network, the need_grad property of the input (e.g., input image) must be False
+        and do not forget to add `<root>.forward(clear_no_need_grad=True)`; 
+        otherwise, all intermediate buffers are not gone as expected.
+    """
+
+    global current_no_grad
+    prev_no_grad = current_no_grad
+    current_no_grad = no_grad_
+    try:
+        yield
+    finally:
+        current_no_grad = prev_no_grad
 
 
 @contextmanager
@@ -260,8 +312,18 @@ def get_parameter_or_create(name, shape=None, initializer=None, need_grad=True,
     if as_need_grad is None:
         as_need_grad = need_grad
 
+    # Overwrite as_need_grad if current_no_grad is True
+    global current_no_grad
+    as_need_grad = False if current_no_grad else as_need_grad
+
     # Try to find a existing parameter.
     param = get_parameter(names[0])
+
+    # Postprocess for a parameter variable
+    def _returning(v):
+        v = v.get_unlinked_variable(need_grad=as_need_grad)
+        v.name = names[0]
+        return v
 
     # If found, verify shape and flags, and returns it.
     if param is not None:
@@ -275,19 +337,19 @@ def get_parameter_or_create(name, shape=None, initializer=None, need_grad=True,
         if need_grad != param.need_grad:
             param.need_grad = need_grad
             set_parameter(name, param)
-        return param.get_unlinked_variable(need_grad=as_need_grad)
+        return _returning(param)
 
-    # TODO: Initializer info must be stored in Variable?
-    # class VariableInfo:
-    #     pass
-    # info = VariableInfo()
-    # info.initializer = initializer
+    class VariableInfo:
+        pass
+    info = VariableInfo()
+    info.initializer = initializer
 
     # Create a new parameter using specified configuration,
     # and write it to current scope..
     param = _create_parameter_by_initializer(initializer, shape, need_grad)
+    param.info = info
     set_parameter(name, param)
-    return param.get_unlinked_variable(need_grad=as_need_grad)
+    return _returning(param)
 
 
 def get_parameters(params=None, path='', grad_only=True):
@@ -347,70 +409,16 @@ def load_parameters(path, proto=None, needs_proto=False, extension=".nntxt"):
     else:
         ext = extension
 
-    if ext == '.h5':
-        # TODO temporary work around to suppress FutureWarning message.
-        import warnings
-        warnings.simplefilter('ignore', category=FutureWarning)
-        import h5py
-        with get_file_handle_load(path, ext) as hd:
-            keys = []
-
-            def _get_keys(name):
-                ds = hd[name]
-                if not isinstance(ds, h5py.Dataset):
-                    # Group
-                    return
-                # To preserve order of parameters
-                keys.append((ds.attrs.get('index', None), name))
-            hd.visit(_get_keys)
-            for _, key in sorted(keys):
-                ds = hd[key]
-
-                var = get_parameter_or_create(
-                    key, ds.shape, need_grad=ds.attrs['need_grad'])
-                var.data.cast(ds.dtype)[...] = ds[...]
-
-                if needs_proto:
-                    if proto is None:
-                        proto = nnabla_pb2.NNablaProtoBuf()
-                    parameter = proto.parameter.add()
-                    parameter.variable_name = key
-                    parameter.shape.dim.extend(ds.shape)
-                    parameter.data.extend(
-                        numpy.array(ds[...]).flatten().tolist())
-                    parameter.need_grad = False
-                    if ds.attrs['need_grad']:
-                        parameter.need_grad = True
-
+    ctx = FileHandlerContext()
+    if proto is None:
+        ctx.proto = nnabla_pb2.NNablaProtoBuf()
     else:
-        if proto is None:
-            proto = nnabla_pb2.NNablaProtoBuf()
-
-        if ext == '.protobuf':
-            with get_file_handle_load(path, ext) as f:
-                proto.MergeFromString(f.read())
-                set_parameter_from_proto(proto)
-        elif ext == '.nntxt' or ext == '.prototxt':
-            with get_file_handle_load(path, ext) as f:
-                text_format.Merge(f.read(), proto)
-                set_parameter_from_proto(proto)
-
-        elif ext == '.nnp':
-            try:
-                tmpdir = tempfile.mkdtemp()
-                with get_file_handle_load(path, ext) as nnp:
-                    for name in nnp.namelist():
-                        nnp.extract(name, tmpdir)
-                        _, ext = os.path.splitext(name)
-                        if ext in ['.protobuf', '.h5']:
-                            proto = load_parameters(os.path.join(
-                                tmpdir, name), proto, needs_proto)
-            finally:
-                shutil.rmtree(tmpdir)
-                logger.info("Parameter load ({}): {}".format(format, path))
-        else:
-            logger.error("Invalid parameter file '{}'".format(path))
-    return proto
+        ctx.proto = proto
+    ctx.needs_proto = needs_proto
+    # Get parameter file loaders
+    file_loaders = get_parameter_file_loader()
+    load_files(ctx, file_loaders, path, ext)
+    return ctx.proto
 
 
 def save_parameters(path, params=None, extension=None):
@@ -426,30 +434,11 @@ def save_parameters(path, params=None, extension=None):
         _, ext = os.path.splitext(path)
     else:
         ext = extension
-    params = get_parameters(grad_only=False) if params is None else params
-    if ext == '.h5':
-        # TODO temporary work around to suppress FutureWarning message.
-        import warnings
-        warnings.simplefilter('ignore', category=FutureWarning)
-        import h5py
-        with get_file_handle_save(path, ext) as hd:
-            for i, (k, v) in enumerate(iteritems(params)):
-                hd[k] = v.d
-                hd[k].attrs['need_grad'] = v.need_grad
-                # To preserve order of parameters
-                hd[k].attrs['index'] = i
-    elif ext == '.protobuf':
-        proto = nnabla_pb2.NNablaProtoBuf()
-        for variable_name, variable in params.items():
-            parameter = proto.parameter.add()
-            parameter.variable_name = variable_name
-            parameter.shape.dim.extend(variable.shape)
-            parameter.data.extend(numpy.array(variable.d).flatten().tolist())
-            parameter.need_grad = variable.need_grad
-
-        with get_file_handle_save(path, ext) as f:
-            f.write(proto.SerializeToString())
-    else:
-        logger.critical('Only supported hdf5 or protobuf.')
-        assert False
+    ctx = FileHandlerContext()
+    ctx.parameters = get_parameters(
+        grad_only=False) if params is None else params
+    file_savers = get_parameter_file_savers()
+    supported = save_files(ctx, file_savers, path, ext)
+    assert supported, 'Only supported {}.'.format(
+        ','.join(list(file_savers.keys())))
     logger.info("Parameter save ({}): {}".format(ext, path))

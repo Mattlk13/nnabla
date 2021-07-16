@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,9 +35,10 @@ import h5py
 import numpy
 import scipy.io.wavfile
 import os
-import six.moves.urllib.request as request
+import urllib.request as request
 import six
 import tempfile
+import binascii
 from shutil import rmtree
 
 from nnabla.utils import image_utils
@@ -47,20 +49,6 @@ from nnabla.logger import logger
 
 # Expose for backward compatibility
 from .download import download, get_data_home
-
-pypng_available = False
-try:
-    import png
-    pypng_available = True
-except ImportError:
-    pass
-cv2_available = False
-try:
-    import cv2
-    # TODO: Currently cv2 image reader doesn't work.
-    # cv2_available = True
-except ImportError:
-    pass
 
 pydub_available = False
 with warnings.catch_warnings():
@@ -110,6 +98,7 @@ class FileReader:
 
     def __init__(self, base_uri):
         self._base_uri = base_uri
+        self.base_ext = os.path.splitext(self._base_uri)[1].lower()
         if base_uri[0:5].lower() == 's3://':
             self._file_type = 's3'
             uri_header, uri_body = self._base_uri.split('://', 1)
@@ -144,7 +133,7 @@ class FileReader:
         return result
 
     @contextlib.contextmanager
-    def open(self, filename=None, textmode=False):
+    def open(self, filename=None, textmode=False, encoding='utf-8-sig'):
         if filename is None:
             filename = self._base_uri
         else:
@@ -164,16 +153,17 @@ class FileReader:
             key = '/'.join(us)
             logger.info('Opening {}'.format(key))
             if textmode:
-                f = StringIO(self.read_s3_object(key).decode('utf-8'))
+                f = StringIO(self.read_s3_object(key).decode(encoding))
             else:
                 f = BytesIO(self.read_s3_object(key))
         elif self._file_type == 'http':
             f = request.urlopen(filename)
         else:
             if textmode:
-                f = open(filename, 'rt')
+                f = open(filename, 'rt', encoding=encoding)
             else:
                 f = open(filename, 'rb')
+        f.ext = os.path.splitext(filename)[1].lower()
         yield f
         f.close()
 
@@ -209,6 +199,88 @@ class FileReader:
         return [f for f in sorted(os.listdir(self._base_uri)) if os.path.splitext(f)[1].lower() == ".h5"]
 
 
+def get_file_extension(source):
+    ext = ''
+    file_signature = {
+        '.bmp': (['424d'], 0x0),
+        '.dib': (['424d'], 0x0),
+        '.pgm': (['50350a'], 0x0),
+        '.jpeg': (['ffd8ff'], 0x0),
+        '.jpg': (['ffd8ff'], 0x0),
+        '.png': (['89504e470d0a1a0a'], 0x0),
+        '.tif': (['492049'], 0x0),
+        '.tiff': (['492049'], 0x0),
+        '.eps': (['c5d0d3c6'], 0x0),
+        '.gif': (['474946383761', '474946383961'], 0x0),
+        '.ico': (['00000100'], 0x0),
+        '.dcm': (['4449434d'], 0x80),
+        '.wav': (['52494646'], 0x0),
+    }
+    if hasattr(source, "read"):
+        if hasattr(source, "name"):
+            ext = os.path.splitext(source.name)[1].lower()
+        else:
+            for extension, (signature, offset) in file_signature.items():
+                source.seek(offset)
+                data = binascii.hexlify(source.read()).decode('utf-8')
+                source.seek(0)
+                for s in signature:
+                    if data.startswith(s):
+                        ext = extension
+    elif isinstance(source, str):
+        ext = os.path.splitext(source)[1].lower()
+    return ext
+
+
+class ResourceFileReader:
+    '''
+    arrange a file or BytesIO object with extension info appended
+
+    '''
+
+    def __init__(self, source):
+        self._source = source
+        self.handler = None
+        if isinstance(self._source, str):
+            self.handler = FileReader(self._source)
+            self.ext = self.handler.base_ext
+            if not self.ext:
+                with self.handler.open() as f:
+                    self.ext = get_file_extension(f)
+        elif hasattr(self._source, "read") and self._accepted_source_type(self._source):
+            self.handler = self._source
+            self.ext = get_file_extension(self._source)
+        else:
+            raise ValueError(
+                "ResourceFileReader only accept path str, binary file handler or BytesIO")
+
+    def _accepted_source_type(self, source):
+        if not hasattr(source, 'seek'):
+            return False
+        try:
+            source.seek(0)
+            c = source.read(1)
+            source.seek(0)
+        except Exception:
+            return False
+        if isinstance(c, str):
+            return False
+        return True
+
+    @contextlib.contextmanager
+    def open(self):
+        if isinstance(self.handler, FileReader):
+            with self.handler.open() as f:
+                if not f.ext:
+                    f.ext = self.ext
+                yield f
+        else:
+            self.handler.seek(0)
+            self.handler.ext = self.ext
+            yield self.handler
+            self.handler.seek(0)
+
+
 def load_image_imread(file, shape=None, max_range=1.0):
     '''
     Load image from file like object.
@@ -223,11 +295,11 @@ def load_image_imread(file, shape=None, max_range=1.0):
     :return: numpy array
 
     '''
-    img255 = imread(
+    orig_img = imread(
         file)  # return value is from zero to 255 (even if the image has 16-bitdepth.)
 
-    if len(img255.shape) == 2:  # gray image
-        height, width = img255.shape
+    if len(orig_img.shape) == 2:  # gray image
+        height, width = orig_img.shape
         if shape is None:
             out_height, out_width, out_n_color = height, width, 1
         else:
@@ -235,10 +307,10 @@ def load_image_imread(file, shape=None, max_range=1.0):
         assert(out_n_color == 1)
         if out_height != height or out_width != width:
             # imresize returns 0 to 255 image.
-            img255 = imresize(img255, (out_height, out_width))
-        img255 = img255.reshape((out_n_color, out_height, out_width))
-    elif len(img255.shape) == 3:  # RGB image
-        height, width, n_color = img255.shape
+            orig_img = imresize(orig_img, (out_height, out_width))
+        orig_img = orig_img.reshape((out_n_color, out_height, out_width))
+    elif len(orig_img.shape) == 3:  # RGB image
+        height, width, n_color = orig_img.shape
         if shape is None:
             out_height, out_width, out_n_color = height, width, n_color
         else:
@@ -246,13 +318,22 @@ def load_image_imread(file, shape=None, max_range=1.0):
         assert(out_n_color == n_color)
         if out_height != height or out_width != width or out_n_color != n_color:
             # imresize returns 0 to 255 image.
-            img255 = imresize(img255, (out_height, out_width, out_n_color))
-        img255 = img255.transpose(2, 0, 1)
+            orig_img = imresize(orig_img, (out_height, out_width, out_n_color))
+        orig_img = orig_img.transpose(2, 0, 1)
 
-    if max_range < 0 or max_range == 255.0:
-        return img255
+    if max_range < 0:
+        return orig_img
     else:
-        return img255 * (max_range / 255.0)
+        # 16bit depth
+        if orig_img.dtype == 'uint16':
+            if max_range == 65535.0:
+                return orig_img
+            return orig_img * (max_range / 65535.0)
+        # 8bit depth (default)
+        else:
+            if max_range == 255.0:
+                return orig_img
+            return orig_img * (max_range / 255.0)
 
 
 def load_image(file, shape=None, normalize=False):
@@ -276,14 +357,9 @@ def load_csv(file, shape=None, normalize=False):
     :return: numpy array
     """
     value_list = []
-    if six.PY2:
-        for row in csv.reader(file):
-            if len(row):
-                value_list.append(list(map(float, row)))
-    elif six.PY34:
-        for row in csv.reader([l.decode('utf-8') for l in file.readlines()]):
-            if len(row):
-                value_list.append(list(map(float, row)))
+    for row in csv.reader([l.decode('utf-8') for l in file.readlines()]):
+        if len(row):
+            value_list.append(list(map(float, row)))
     try:
         if shape is None:
             return numpy.array(value_list)

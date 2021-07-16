@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,6 +27,26 @@ namespace nbla {
 NBLA_REGISTER_FUNCTION_SOURCE(FusedBatchNormalization, const vector<int> &,
                               float, float, bool, const string &);
 
+namespace fused_batch_normalization {
+// These functions are special cases for the fused batch normalization
+template <typename T>
+void relu_backward(int size, T *dx, const T *dy, const T *y) {
+  for (int i = 0; i < size; i++) {
+    if (y[i] > 0)
+      dx[i] = dy[i];
+    else
+      dx[i] = T(0);
+  }
+}
+
+template <typename T>
+void add2_backward(int size, T *dx1, const T *dx, bool accum) {
+  for (int i = 0; i < size; i++) {
+    dx1[i] = accum ? dx1[i] + dx[i] : dx[i];
+  }
+}
+}
+
 template <class T>
 void FusedBatchNormalization<T>::setup_impl(const Variables &inputs,
                                             const Variables &outputs) {
@@ -33,7 +54,8 @@ void FusedBatchNormalization<T>::setup_impl(const Variables &inputs,
              "Currently \"relu\" is only supported as a nonlinearity.");
   Variables inputs_bn(inputs.begin(), inputs.begin() + 5);
   bn_ = create_BatchNormalization(this->ctx_, axes_, decay_rate_, eps_,
-                                  batch_stat_);
+                                  batch_stat_, false /* no_scale */,
+                                  false /* no_bias */);
   bn_->setup(inputs_bn, outputs);
 }
 
@@ -63,6 +85,31 @@ void FusedBatchNormalization<T>::forward_impl(const Variables &inputs,
 }
 
 template <class T>
+void FusedBatchNormalization<T>::recompute_impl(const Variables &inputs,
+                                                const Variables &outputs) {
+
+  NBLA_CHECK(bn_, error_code::value, "setup is not called.");
+  // Naive non-fused implementation by layer composition.
+  // 1. Perform BatchNormalization
+  Variables inputs_bn(inputs.begin(), inputs.begin() + 5);
+  bn_->recompute(inputs_bn, outputs);
+
+  // 2. Perform Add2
+  // NOTE: Output buffer are re-used by inplacing.
+  if (inputs.size() == 6) {
+    auto add2 = create_Add2(this->ctx_, true);
+    add2->setup(Variables{outputs[0], inputs[5]}, Variables{outputs[0]});
+    add2->forward(Variables{outputs[0], inputs[5]}, Variables{outputs[0]});
+  }
+
+  // 3. Perform ReLU
+  // NOTE: Output buffer are re-used by inplacing.
+  auto relu = create_ReLU(this->ctx_, true);
+  relu->setup(Variables{outputs[0]}, Variables{outputs[0]});
+  relu->forward(Variables{outputs[0]}, Variables{outputs[0]});
+}
+
+template <class T>
 void FusedBatchNormalization<T>::backward_impl(
     const Variables &inputs, const Variables &outputs,
     const vector<bool> &propagate_down, const vector<bool> &accum) {
@@ -70,33 +117,35 @@ void FusedBatchNormalization<T>::backward_impl(
 
   // Naive non-fused implementation by layer composition.
   // 1. Perform ReLU backward
-  // NOTE: Output buffer are re-used by inplacing.
   bool prop_down_add2 = (inputs.size() == 6 && propagate_down[5]);
   bool prop_down_bn =
       std::accumulate(propagate_down.begin(), propagate_down.begin() + 3, false,
                       std::logical_or<bool>());
-
-  bool accum_relu = false; // Whatever because inout are inplaced.
-  auto relu = create_ReLU(this->ctx_, true);
-  relu->setup(Variables{outputs[0]}, Variables{outputs[0]}); // Inplace
-  relu->backward(Variables{outputs[0]}, Variables{outputs[0]},
-                 {prop_down_add2 || prop_down_bn}, {accum_relu});
-
-  // 2. Perform Add2 backward
-  // NOTE: Output buffer are re-used by inplacing.
-  if (prop_down_add2) {
-    auto add2 = create_Add2(this->ctx_, true);
-    bool accum_bn = false; // Whatever since it's inplaced.
-    add2->setup(Variables{outputs[0], inputs[5]}, Variables{outputs[0]});
-    add2->backward(Variables{outputs[0], inputs[5]}, Variables{outputs[0]},
-                   {prop_down_bn, prop_down_add2}, {accum_bn, accum[5]});
+  auto y = outputs[0]->get_data_pointer<T>(this->ctx_);
+  Variable relu_x(outputs[0]->shape());
+  auto relu_dx = relu_x.cast_grad_and_get_pointer<T>(this->ctx_);
+  auto dy = outputs[0]->get_grad_pointer<T>(this->ctx_);
+  auto size = outputs[0]->size();
+  if (prop_down_add2 || prop_down_bn) {
+    fused_batch_normalization::relu_backward(size, relu_dx, dy, y);
   }
 
+  // 2. Perform Add2 backward
+  // NOTE: Output buffer for the first operand of the addition are re-used by
+  // inplacing,
+  // nothing done for it.
+  if (prop_down_add2) {
+    auto dx1 = inputs[5]->cast_grad_and_get_pointer<T>(this->ctx_);
+    fused_batch_normalization::add2_backward(size, dx1, relu_dx, accum[5]);
+  }
   // 3. Perform BN backward
   Variables inputs_bn(inputs.begin(), inputs.begin() + 5);
   vector<bool> prop_down_bn_inputs(propagate_down.begin(),
                                    propagate_down.begin() + 5);
   vector<bool> accum_bn_inputs(accum.begin(), accum.begin() + 5);
-  bn_->backward(inputs_bn, outputs, prop_down_bn_inputs, accum_bn_inputs);
+
+  Variables outputs_bn = outputs;
+  outputs_bn[0] = &relu_x;
+  bn_->backward(inputs_bn, outputs_bn, prop_down_bn_inputs, accum_bn_inputs);
 }
 } // namespace nbla

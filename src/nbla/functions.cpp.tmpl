@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -41,24 +41,34 @@ namespace functions {
 <%
 fi = function_info[name]
 
+inputs_list_variadic = []
 inputs_list = []
 inputs_info = fi.get('inputs', [])
 if 0 < len(inputs_info):
-    inputs_list += ['CgVariablePtr ' + x for x in inputs_info]
+    for x in inputs_info:
+        if inputs_info[x].get('variadic', False):
+            inputs_list_variadic += ['vector<CgVariablePtr> ' + x]
+        inputs_list += ['CgVariablePtr ' + x]
 
 args_info = fi.get('arguments', [])
+argument_list = []
 if 0 < len(args_info):
-    inputs_list += [x[0] + ' ' + x[1] for x in zip(arg_types, args_info)]
+    argument_list += [x[0] + ' ' + x[1] for x in zip(arg_types, args_info)]
 
-inputs_types = ', '.join(inputs_list)
+def generate_inputs(inputs_list):
+    inputs_types = ', '.join(inputs_list + argument_list)
+    context_and_inputs = "Context &ctx"
+    if 0 < len(inputs_list + argument_list) :
+        context_and_inputs += ", " + inputs_types
+    return inputs_types, context_and_inputs
 
-context_and_inputs = "Context &ctx"
-if 0 < len(inputs_list) : context_and_inputs += ", " + inputs_types
+inputs_types, context_and_inputs = generate_inputs(inputs_list)
+inputs_types_v, context_and_inputs_v = generate_inputs(inputs_list_variadic)
 
 inputs = ', '.join(inputs_info)
 
 args = ', '.join(args_info)
-if args is not '':
+if args != '':
    args = ', ' + args
 
 output_type = 'CgVariablePtr'
@@ -79,6 +89,20 @@ ${output_type} ${snake_name}(${inputs_types}){
   bool auto_forward = SingletonManager::get<AutoForward>()->get_auto_forward();
   return connect(make_shared<CgFunction>(create_${name}(global_ctx${args})), {${inputs}}, 1, {}, auto_forward)${output_index};
 }
+
+% if inputs_list_variadic:
+vector<CgVariablePtr> ${snake_name}(${context_and_inputs_v}){
+  bool auto_forward = SingletonManager::get<AutoForward>()->get_auto_forward();
+  return connect(make_shared<CgFunction>(create_${name}(ctx${args})), ${inputs}, 1, {}, auto_forward);
+}
+
+${output_type} ${snake_name}(${inputs_types_v}){
+  auto global_ctx = SingletonManager::get<GlobalContext>()->get_current_context();
+  bool auto_forward = SingletonManager::get<AutoForward>()->get_auto_forward();
+  return connect(make_shared<CgFunction>(create_${name}(global_ctx${args})), ${inputs}, 1, {}, auto_forward)${output_index};
+}
+% endif
+
 % endfor
 
 
@@ -216,8 +240,8 @@ vector<CgVariablePtr> deconvolution(Context &ctx, CgVariablePtr x, CgVariablePtr
   return deconvolution(ctx, x, weight, bias, base_axis, opts.pad(), opts.stride(), opts.dilation(), group, opts.channel_last(), opts.output_padding());
 }
 
-vector<CgVariablePtr> batch_normalization(Context &ctx, CgVariablePtr x, CgVariablePtr beta, CgVariablePtr gamma, CgVariablePtr mean, CgVariablePtr variance, bool batch_stat, BatchNormalizationOpts batch_opts){
-  return batch_normalization(ctx, x, beta, gamma, mean, variance, batch_opts.axes(), batch_opts.decay_rate(), batch_opts.eps(), batch_stat);
+vector<CgVariablePtr> batch_normalization(Context &ctx, CgVariablePtr x, CgVariablePtr beta, CgVariablePtr gamma, CgVariablePtr mean, CgVariablePtr variance, bool batch_stat, bool no_scale, bool no_bias, BatchNormalizationOpts batch_opts){
+  return batch_normalization(ctx, x, beta, gamma, mean, variance, batch_opts.axes(), batch_opts.decay_rate(), batch_opts.eps(), batch_stat, no_scale, no_bias);
 }
 
 vector<CgVariablePtr> max_pooling(Context &ctx, CgVariablePtr x, const vector<int> & kernel, const vector<int> & stride, PoolingOpts pooling_opts){
@@ -260,25 +284,25 @@ CgVariablePtr deconvolution(CgVariablePtr x, CgVariablePtr weight, CgVariablePtr
   return deconvolution(global_ctx, x, weight, bias, base_axis, opts.pad(), opts.stride(), opts.dilation(), group, opts.channel_last(), opts.output_padding())[0];
 }
 
-CgVariablePtr batch_normalization(CgVariablePtr x, CgVariablePtr beta, CgVariablePtr gamma, CgVariablePtr mean, CgVariablePtr variance, bool batch_stat, BatchNormalizationOpts batch_opts){
+CgVariablePtr batch_normalization(CgVariablePtr x, CgVariablePtr beta, CgVariablePtr gamma, CgVariablePtr mean, CgVariablePtr variance, bool batch_stat, bool no_scale, bool no_bias, BatchNormalizationOpts batch_opts){
   auto global_ctx = SingletonManager::get<GlobalContext>()->get_current_context();
-  return batch_normalization(global_ctx, x, beta, gamma, mean, variance, batch_opts.axes(), batch_opts.decay_rate(), batch_opts.eps(), batch_stat)[0];
+  return batch_normalization(global_ctx, x, beta, gamma, mean, variance, batch_opts.axes(), batch_opts.decay_rate(), batch_opts.eps(), batch_stat, no_scale, no_bias)[0];
 }
 
 }
 }
 
 nbla::CgVariablePtr operator+(const nbla::CgVariablePtr &a, const nbla::CgVariablePtr &b) { return nbla::functions::add2(a, b, false);}
-nbla::CgVariablePtr operator-(const nbla::CgVariablePtr &a, const nbla::CgVariablePtr &b) { return nbla::functions::sub2(a, b);}
-nbla::CgVariablePtr operator*(const nbla::CgVariablePtr &a, const nbla::CgVariablePtr &b) { return nbla::functions::mul2(a, b);}
-nbla::CgVariablePtr operator/(const nbla::CgVariablePtr &a, const nbla::CgVariablePtr &b) { return nbla::functions::div2(a, b);}
+nbla::CgVariablePtr operator-(const nbla::CgVariablePtr &a, const nbla::CgVariablePtr &b) { return nbla::functions::sub2(a, b, false);}
+nbla::CgVariablePtr operator*(const nbla::CgVariablePtr &a, const nbla::CgVariablePtr &b) { return nbla::functions::mul2(a, b, false);}
+nbla::CgVariablePtr operator/(const nbla::CgVariablePtr &a, const nbla::CgVariablePtr &b) { return nbla::functions::div2(a, b, false);}
 
-nbla::CgVariablePtr operator+(const nbla::CgVariablePtr &a, const float &b) { return nbla::functions::add_scalar(a, b);}
-nbla::CgVariablePtr operator*(const nbla::CgVariablePtr &a, const float &b) { return nbla::functions::mul_scalar(a, b);}
-nbla::CgVariablePtr operator-(const nbla::CgVariablePtr &a, const float &b) { return nbla::functions::add_scalar(a, -b);}
-nbla::CgVariablePtr operator/(const nbla::CgVariablePtr &a, const float &b) { return nbla::functions::mul_scalar(a, 1.0/b);}
+nbla::CgVariablePtr operator+(const nbla::CgVariablePtr &a, const float &b) { return nbla::functions::add_scalar(a, b, false);}
+nbla::CgVariablePtr operator*(const nbla::CgVariablePtr &a, const float &b) { return nbla::functions::mul_scalar(a, b, false);}
+nbla::CgVariablePtr operator-(const nbla::CgVariablePtr &a, const float &b) { return nbla::functions::add_scalar(a, -b, false);}
+nbla::CgVariablePtr operator/(const nbla::CgVariablePtr &a, const float &b) { return nbla::functions::mul_scalar(a, 1.0/b, false);}
 
-nbla::CgVariablePtr operator+(const float &a, const nbla::CgVariablePtr &b) { return nbla::functions::add_scalar(b, a);}
-nbla::CgVariablePtr operator*(const float &a, const nbla::CgVariablePtr &b) { return nbla::functions::mul_scalar(b, a);}
+nbla::CgVariablePtr operator+(const float &a, const nbla::CgVariablePtr &b) { return nbla::functions::add_scalar(b, a, false);}
+nbla::CgVariablePtr operator*(const float &a, const nbla::CgVariablePtr &b) { return nbla::functions::mul_scalar(b, a, false);}
 nbla::CgVariablePtr operator-(const float &a, const nbla::CgVariablePtr &b) { return nbla::functions::r_sub_scalar(b, a);}
 nbla::CgVariablePtr operator/(const float &a, const nbla::CgVariablePtr &b) { return nbla::functions::r_div_scalar(b, a);}

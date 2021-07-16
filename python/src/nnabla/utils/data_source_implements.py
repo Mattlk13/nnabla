@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -81,7 +81,7 @@ class CachePrefetcher(object):
             if retry > 10:
                 logger.log(99, 'read_cache() retry count over give up.')
                 logger.log(
-                    99, 'Cache file {} not found.'.format(file_name))
+                    99, 'Cache file {} not found. pid={}'.format(file_name, os.getpid()))
                 logger.log(99, 'Fatal Error! send SIGKILL to myself.')
                 os.kill(os.getpid(), 9)
 
@@ -96,10 +96,12 @@ class CachePrefetcher(object):
                     logger.log(
                         99, 'read_cache() fails retrying count {}/10.'.format(retry))
                     retry += 1
+                    sleep(0.5)
             except:
                 logger.log(
                     99, 'Cache file {} not found, retry count {}.'.format(file_name, retry))
                 retry += 1
+                sleep(0.5)
 
         return result
 
@@ -193,7 +195,7 @@ class CacheDataSource(DataSource):
             next_data = {}
             with self._filereader.open_cache(filename) as cache:
                 for k, v in cache.items():
-                    next_data[k] = v.value
+                    next_data[k] = v[()]
 
         if current_communicator():
             if set(self._variables) != set(next_data.keys()):
@@ -230,8 +232,14 @@ class CacheDataSource(DataSource):
         data = [self._current_data[v][index] for v in self.variables]
 
         if self._normalize:
-            data = [d.astype(numpy.float32) * (1.0 / 255.0)
-                    if d.dtype == numpy.uint8 else d for d in data]
+            new_data = []
+            for d in data:
+                if d.dtype == numpy.uint8:
+                    d = d.astype(numpy.float32) * (1.0 / 255.0)
+                elif d.dtype == numpy.uint16:
+                    d = d.astype(numpy.float32) * (1.0 / 65535.0)
+                new_data.append(d)
+            data = new_data
         return data
 
     def initialize_cache_files(self, filename):
@@ -329,6 +337,11 @@ class CacheDataSource(DataSource):
 
         self.reset()
 
+    def close(self):
+        if hasattr(self, '_cache_reader_with_prefetch') and self._cache_reader_with_prefetch:
+            self._cache_reader_with_prefetch.close()
+            self._cache_reader_with_prefetch = None
+
     def reset(self):
         with self._thread_lock:
             super(CacheDataSource, self).reset()
@@ -356,6 +369,13 @@ class CacheDataSource(DataSource):
 class CsvDataSource(DataSource):
     '''
     '''
+
+    def _remove_comment_cols(self, header, rows):
+        for col_index in reversed(range(len(header))):
+            if header[col_index][0] == '#':
+                del header[col_index]
+                for row in rows:
+                    del row[col_index]
 
     def _process_header(self, row):
         self._variables_dict = OrderedDict()
@@ -425,18 +445,13 @@ class CsvDataSource(DataSource):
         self._generation = -1
         self._rows = []
         self._filereader = FileReader(self._filename)
-        with self._filereader.open() as f:
-            csv_lines = [x.decode('utf-8') for x in f.readlines()]
-            csvreader = csv.reader(csv_lines)
-            first_line = True
-            for row in csvreader:
-                if len(row):
-                    if first_line:
-                        self._process_header(row)
-                        first_line = False
-                    else:
-                        self._rows.append(row)
-                        self._size += 1
+        with self._filereader.open(textmode=True, encoding='utf-8-sig') as f:
+            csvreader = csv.reader(f)
+            header = next(csvreader)
+            self._rows = list(csvreader)
+            self._size = len(self._rows)
+            self._remove_comment_cols(header, self._rows)
+            self._process_header(header)
         self._original_source_uri = self._filename
         self._original_order = list(range(self._size))
         self._order = list(range(self._size))

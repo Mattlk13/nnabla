@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 
 #ifndef __NBLA_CPU_HPP__
 #define __NBLA_CPU_HPP__
+#include <nbla/backend_base.hpp>
 #include <nbla/defs.hpp>
 #include <nbla/memory/allocator.hpp>
 #include <nbla/singleton_manager.hpp>
@@ -30,7 +31,7 @@ using std::unique_ptr;
 /**
 Singleton class for storing some handles or configs for CPU Computation.
 */
-class NBLA_API Cpu {
+class NBLA_API Cpu : public BackendBase {
 
 public:
   ~Cpu();
@@ -56,6 +57,23 @@ public:
   /** Get a no-cache allocator.
    */
   shared_ptr<Allocator> naive_allocator();
+
+  /** Free all unused host memory caches
+   */
+  void free_unused_host_caches();
+
+  /** Synchronize host to device.
+   */
+  void device_synchronize(const string &device);
+
+  /** Synchronize host to default stream of device.
+   */
+  void default_stream_synchronize(const string &device);
+
+  /** Create non blockuing streams for data transfer.
+      Noting to do in CPU backend.
+   */
+  void create_lms_streams(int device = -1) {}
 
 protected:
   vector<string> array_classes_; ///< Available array classes

@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -79,3 +80,24 @@ def test_nd_array_data(value):
         assert a.data.dtype == np.asarray(value).dtype
     else:
         assert a.data.dtype == np.float32
+
+
+def test_clear_called():
+    a = nn.NdArray(1)
+    assert a.clear_called == False
+    a.fill(3)
+    assert a.clear_called == False
+    a.clear()
+    assert a.clear_called == True
+
+    a.fill(3)
+    assert a.clear_called == False
+    a.clear()
+    assert a.clear_called == True
+    a.zero()
+    assert a.clear_called == False
+    a.clear()
+    assert a.clear_called == True
+
+    a.data[0] = -1
+    assert a.clear_called == False

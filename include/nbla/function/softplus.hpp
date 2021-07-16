@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,24 +24,21 @@
 
 namespace nbla {
 
-NBLA_REGISTER_FUNCTION_HEADER(SoftPlus);
-
 /** SoftPlus
 @brief SoftPlus defined as
 @f[
-y_i = \log(\exp(x)+1)
+y_i = \frac{1}{\beta} * \log(\exp(\beta * x)+1)
 @f]
-
 Inputs:
 - N-D array.
-
 Outputs:
 - N-D array.
-
 @tparam T Data type for computation.
 \ingroup FunctionImplGrp
  */
-NBLA_DEFINE_TRANSFORM_UNARY(SoftPlus, std::log(std::exp(x) + (T)1),
-                            dy / ((T)1 + std::exp(-x)), false);
+NBLA_DEFINE_TRANSFORM_UNARY_1(
+    SoftPlus, x > (T)0 ? x + std::log(std::exp(-x * (T)a0) + (T)1) / (T)a0
+                       : (std::log(std::exp(x * (T)a0) + (T)1)) / (T)a0,
+    dy / ((T)1 + std::exp(-(T)a0 * x)), false, true, double);
 }
 #endif

@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,36 +17,69 @@
 
 #include <nbla/array.hpp>
 #include <nbla/function/dropout.hpp>
+#include <nbla/random_manager.hpp>
 #include <nbla/variable.hpp>
 
 #include <algorithm>
 
 namespace nbla {
 
-NBLA_REGISTER_FUNCTION_SOURCE(Dropout, double, int);
+NBLA_REGISTER_FUNCTION_SOURCE(Dropout, double, int, bool);
 
 template <typename T>
 void Dropout<T>::setup_impl(const Variables &inputs, const Variables &outputs) {
   NBLA_CHECK(p_ > 0. && p_ < 1., error_code::value,
              "p must be between 0.0 and 1.0. p: %f.", p_);
   outputs[0]->reshape(inputs[0]->shape(), true);
-  mask_.reshape(inputs[0]->shape(), true);
+  if (output_mask_) {
+    outputs[1]->reshape(inputs[0]->shape(), true);
+  } else {
+    mask_.reshape(inputs[0]->shape(), true);
+  }
   std::random_device rdev_;
   rgen_ = std::mt19937((seed_ == -1 ? rdev_() : seed_));
   rdist_ = std::bernoulli_distribution(1 - p_);
   scale_ = 1. / (1. - p_);
 }
 
+template <typename T>
+void Dropout<T>::setup_recompute_impl(const Variables &inputs,
+                                      const Variables &outputs) {
+  save_rng_ = true;
+}
+
 template <class T>
-void Dropout<T>::forward_impl(const Variables &inputs,
-                              const Variables &outputs) {
+void Dropout<T>::dropout(const Variables &inputs, const Variables &outputs,
+                         std::mt19937 &rgen) {
   const T *x = inputs[0]->get_data_pointer<T>(this->ctx_);
   T *y = outputs[0]->cast_data_and_get_pointer<T>(this->ctx_, true);
-  T *m = mask_.cast_data_and_get_pointer<T>(this->ctx_, true);
+  Variable &mask = output_mask_ ? *outputs[1] : this->mask_;
+  T *m = mask.cast_data_and_get_pointer<T>(this->ctx_, true);
   for (int s = 0; s < inputs[0]->size(); s++) {
-    m[s] = rdist_(rgen_);
+    m[s] = rdist_(rgen);
     y[s] = x[s] * m[s] * scale_;
   }
+}
+
+template <typename T>
+void Dropout<T>::forward_impl(const Variables &inputs,
+                              const Variables &outputs) {
+  std::mt19937 &rgen =
+      seed_ == -1 ? SingletonManager::get<RandomManager>()->get_rand_generator()
+                  : rgen_;
+  // Remember the random state for recomputation.
+  if (save_rng_) {
+    rgen_for_recompute_ = rgen;
+  }
+
+  dropout(inputs, outputs, rgen);
+}
+
+template <typename T>
+void Dropout<T>::recompute_impl(const Variables &inputs,
+                                const Variables &outputs) {
+  auto rgen = rgen_for_recompute_;
+  dropout(inputs, outputs, rgen);
 }
 
 template <class T>
@@ -58,7 +92,8 @@ void Dropout<T>::backward_impl(const Variables &inputs,
   }
   T *dx = inputs[0]->cast_grad_and_get_pointer<T>(this->ctx_, !accum[0]);
   const T *dy = outputs[0]->get_grad_pointer<T>(this->ctx_);
-  const T *m = mask_.get_data_pointer<T>(this->ctx_);
+  Variable &mask = output_mask_ ? *outputs[1] : this->mask_;
+  const T *m = mask.get_data_pointer<T>(this->ctx_);
   for (int s = 0; s < inputs[0]->size(); ++s) {
     dx[s] = (accum[0] ? dx[s] : (T)0) + dy[s] * m[s] * scale_;
   }

@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ import collections
 import re
 
 from nnabla.utils import nnabla_pb2
+from .exporter import rename_square_bracket
 
 # Expand repeat and recurrent in nnp file.
 
@@ -70,7 +71,7 @@ class NnpExpander:
             return list(mes.repeat_id).index(rid) if rid in mes.repeat_id else None
 
         def _add_suffix(name, suffix, num):
-            return '{}_{}[{}]'.format(name, suffix, num)
+            return '{}_{}_{}'.format(name, suffix, num)
 
         ########################################################################
         # Prepare output network message
@@ -104,7 +105,7 @@ class NnpExpander:
                             name = _add_suffix(var.name, ri.id, i)
                         else:
                             name = var.name.replace(
-                                '{{{}}}'.format(ri.id), '[{}]'.format(i))
+                                '{{{}}}'.format(ri.id), '_{}'.format(i))
                         self._parameter_original_names[var.name].append(name)
                     else:
                         name = _add_suffix(var.name, ri.id, i)
@@ -326,5 +327,7 @@ class NnpExpander:
 
         for executor in nnp.executor:
             self._expand_parameter_variable(executor)
+
+        rename_square_bracket(nnp)
 
         return nnp

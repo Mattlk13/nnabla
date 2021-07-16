@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -145,7 +145,6 @@ public:
 
   void check_data_inplace(int i, CgVariablePtr input,
                           const vector<CgVariablePtr> &outputs);
-  void check_grad_inplace(int i, CgVariablePtr input);
   void verify_during_forward();
 };
 

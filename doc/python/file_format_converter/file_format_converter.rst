@@ -23,13 +23,13 @@ Overview
       NNP2 [label = "NNP", color="cyan", width=40, height=20];
       NNB [label = "NNB", color="cyan", width=40, height=20];
       CSRC [label = "C Source\ncode", color="seagreen", width=40];
-      TF1 [label = "Tensorflow\n(.pb,ckpt)", shape="roundedbox", color="yellow", width=80, height=60];
-      TF2 [label = "Frozen graph(.pb)",      color="yellow", width=80];
+      TF1 [label = "Tensorflow\n(.pb,ckpt,.tflite,\nsaved_model)", shape="roundedbox", color="yellow", width=80, height=60];
+      TF2 [label = "SavedModel,\nPB, TFlite",      color="yellow", width=80];
       OtherRuntime [label = "Other runtime", shape="roundedbox", width=80];
       NNablaCRuntime [label = "NNabla C\nRuntime", color="lime", shape="roundedbox", width=80];
       Product [label = "Implement to\nproduct", shape="roundedbox", width=80];
       Tensorflow [label = "Tensorflow", shape="roundedbox", width=80];
-      
+
       NNabla1 -> NNP1;
       Other -> ONNX1 -> Conv1 -> NNP1;
       NNP1 -> Conv2;
@@ -51,8 +51,11 @@ File format converter has following functions.
 - Convert ONNX to NNP
 - Convert NNP to ONNX
 - Convert NNP to NNB(Binary format for NNabla C Runtime)
-- Convert NNP to Tensorflow frozen graph
-- Convert Tensorflow checkpoint or frozen graph to NNP
+- Convert NNP to Tensorflow saved_model
+- Convert Tensorflow checkpoint, frozen graph or saved_model to NNP
+- Convert NNP to Tensorflow Lite
+- Convert NNP to INT8 quantized Tensorflow Lite
+- Convert Tensorflow Lite to NNP
 - Experimental: Convert NNP to C Source code for NNabla C Runtime
 
 **IMPORTANT NOTICE**: This file format converter still has some known problems.
@@ -94,6 +97,13 @@ This converter can specify both inputs and outputs for ONNX file, but if ONNX fi
 
 This converter also provides some intermediate process functionalities. See :ref:`Process`.
 
+Installation
+++++++++++
+
+Before using this converter, please use command `pip install nnabla_converter` to install nnabla_converter.
+
+Note that, flatbuffer package is necessary for TFLite export, please check Tensorflow Lite section in this page for more details.
+
 Conversion
 ++++++++++
 
@@ -101,7 +111,7 @@ Supported Formats
 ^^^^^^^^^^^^^^^^^
 
 NNP
-^^^
+"""
 
 **NNP** is file format of NNabla.
 
@@ -114,52 +124,101 @@ But with this file format converter is work with several variation of NNP.
 
 
 ONNX
-^^^^
+""""
 
 Limitation
-++++++++++
+**********
 
 - Training is not supported.
-- Only supports operator set 6 and 9.
+- Support operator set 7,9,10,11.
 - Not all functions are supported. See :any:`Function-Level_Support_Status`.
 - Only limited Neural Network Console projects supported.  See :any:`Model_Support_Status`.
-- In some case you must install onnx package by hand. For example you can install with command `pip install onnx` or if you want to install system wide, you can install with command `sudo -HE pip install onnx`.
-  
-NNB
-^^^
 
-NNB is compact binary format for NNabla C Runtime.
+NNB
+"""
+
+NNB is compact binary format for NNabla C Runtime. The file format is shown as
+the following diagram:
+
+.. figure:: ./file_format_converter/nnb.png
+
+There are several concepts, such as buffer, variable, function, input and output in this file. Each of them
+is represented as a list. Each list is recorded with 2 members: number of object, and index in memory
+block table. The index points to the position in a memory block index table. The index in memory block
+index table points to the start address of memory data block.
+
 It is designed for `nnabla-c-runtime`_.
 
 .. _nnabla-c-runtime: https://github.com/sony/nnabla-c-runtime
 
 
 C Source Code
-^^^^^^^^^^^^^
+"""""""""""""
 
 File format converter supports C source code output for `nnabla-c-runtime`_.
 
 Tensorflow
-^^^^^^^^^^
+""""""""""
 
-Through onnx, tensorflow import and export is partially supported.
+Limitation
+**********
 
-As for the importer, 3 formats tends to be supported:
+Bridged by onnx, tensorflow import and export is supported with some limitations.
+
+As for the importer, 4 formats tends to be supported:
    - .pb, tensorflow frozen graph format
    - .ckpt, tensorflow check point format version 1
    - .ckpt.*, tensorflow check point format version 2
+   - saved_model, tensorflow saved_model format
 
 As for the exporter, some of Neural Network Console projects are supported. See :any:`Model_Support_Status`.
-The output of converter is tensorflow frozen graph format(e.g. *.pb)
-
-Before using this converter, please confirm if tensorflow and related packages are installed:
+The output of converter is tensorflow saved_model format.
 
 
-.. code-block:: none
 
-   $ pip install -U tensorflow==1.5 onnx==1.4.1 onnx_tf
-   $ pip install https://github.com/onnx/tensorflow-onnx.git
+Tensorflow Lite
+"""""""""""""""
 
+Limitation
+**********
+
+For export to tensorflow lite, please install `flatbuffers` package:
+  - For Windows platform, download package from `FlatBuffers`_ and extract.
+  - For Linux platform, use command `snap install flatbuffers` to install flatbuffers.
+  - For MaxOS platform, use command `brew install flatbuffers` to install flatbuffers.
+and add the executable file `flatc` to the system PATH.
+
+.. _FlatBuffers: https://github.com/google/flatbuffers/releases
+
+After exporting TFLite, a json file with the same name will be generated,
+recording whether the input and output of the TFLite network need to be transposed to channel_last according to base_axis.
+
+INT8 quantized Tensorflow Lite
+"""""""""""""""
+
+Limitation
+**********
+
+You should also install `flatbuffers` package. Please refer to the installation above.
+You need provide a represent dataset to the converter if you want to convert nnp to int8 quantized tflite.
+Represent dataset is a subset of training dataset, about 2% - 10% of training data.
+You can collect represent dataset in your training loop. It should be saved as numpy's `.npy` format.
+Here's an example:
+
+.. code-block:: python
+
+    rdataset = []
+    # suppose this is your training loop
+    for step in range(max_step):
+        image, label = dataset.next()
+        x.d = image
+        rdataset.append(image)
+        # your code
+        # ...
+    rdataset = np.array(rdataset).astype(np.float32)
+    np.save('represent_dataset.npy', rdataset)
+
+Of course, you can create represent dataset by any way you like, but please ensure the shape of each item is equal with the shape of network's input and you have finished the necessary preprocess.
 
 Process
 +++++++
@@ -267,7 +326,7 @@ Convert ONNX to NNP
 
    $ nnabla_cli convert input.onnx output.nnp
 
-Currently, opset 6,7,9,10,11 are supported to import.
+Currently, opset 7,9,10,11 are supported to import.
 
 C Runtime Operation
 +++++++++++++++++++
@@ -301,6 +360,14 @@ to quantize your model.
 
 Tensorflow Operation
 ++++++++++++++++++++
+
+Convert NNP to Tensorflow saved_model
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: none
+
+   $ nnabla_cli convert input.nnp output_saved_model --export-format SAVED_MODEL
+
 
 Convert NNP to Tensorflow frozen graph
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -340,6 +407,38 @@ For checkpoint version 2:
 
 In the same directory of input.ckpt.meta, the related files, such as checkpoint, *.ckpt.index, ... and
 so on are required to exist.
+
+
+Convert Tensorflow saved_model to NNP
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: none
+
+   $ nnabla_cli convert input_saved_model output.nnp
+
+
+Convert NNP to Tensorflow Lite
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: none
+
+   $ nnabla_cli convert -b 1 input.nnp output.tflite
+
+
+Convert NNP to INT8 quantized Tensorflow Lite
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: none
+
+   $ nnabla_cli convert -b 1 input.nnp output.tflite --quantization --dataset represent_dataset.npy
+
+
+Convert Tensorflow Lite to NNP
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: none
+
+   $ nnabla_cli convert input.tflite output.nnp
 
 
 Splitting network

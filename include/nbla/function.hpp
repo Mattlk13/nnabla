@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -67,6 +68,11 @@ accumulated to the gradient of the input variable because we assume
 */
 class NBLA_API Function {
   bool used_{false};
+  // This flag turns true once Function::setup calls.
+  bool called_setup_{false};
+  // This flag turns true when Function::setup_recompute called and turns false
+  // when Function::recompute called.
+  bool called_setup_recompute_{false};
 
 public:
   typedef shared_ptr<Function> Ptr;
@@ -125,6 +131,26 @@ public:
   void backward(const Variables &inputs, const Variables &outputs,
                 const vector<bool> &propagate_down, const vector<bool> &acccum);
 
+  /** Setting up for recompute().
+
+  Setting up anything that needs to be done before forward execution for
+  recomputation. If any of outpus of need_setup_recompute is true, this method
+  is called just before forward().
+
+  @sa recompute()
+  @sa need_setup_recompute()
+  */
+  void setup_recompute(const Variables &inputs, const Variables &outputs);
+
+  /** Reproduce previous forward().
+
+  Reproduce previous forward() execution. This method is called during backward
+  execution.
+
+  @sa setup_recompute()
+  */
+  void recompute(const Variables &inputs, const Variables &outputs);
+
   /** Get Context used in this function.
   */
   Context context() const;
@@ -167,8 +193,8 @@ public:
 
   /** Dependency flag for checking if in-grad depends on out-data.
 
-      If i=1 and o=0, checking checking if i-th input' gradient
-      computation requires o-th output's data or not.
+      Checking if i-th input' gradient computation requires o-th output's data
+     or not.
 
       @param[in] i Input variable index.
       @param[in] o Output variable index.
@@ -177,20 +203,40 @@ public:
       its gradient, this function must be overridden to return appropriate
       boolean value. Otherwise, backward computation will be incorrect.
    */
-  virtual bool grad_depends_output_data(int i, int o) const { return false; }
+  virtual bool grad_depends_output_data(int i, int o) const { return true; }
   /** Dependency flag for checking if in-grad depends on in-data.
 
-      If i=1 and j=0, checking checking if i-th input' gradient
-     computation requires j-th input's data or not.
-
-      By default, always returns true. If override this in a sub-class, the
-      computation graph engine will optimize memory usage.
+      Checking if i-th input' gradient computation requires j-th input's data or
+     not.
 
       @param[in] i Input variable index.
       @param[in] j Input variable index.
 
    */
-  virtual bool grad_depends_input_data(int i, int j) const { return true; }
+  virtual bool grad_depends_input_data(int i, int j) const final {
+    // The order of inputs is not obvious before setup is called because of
+    // optional inputs.
+    // For example, DeformableConvolution in NNabla 1.17.0 takes at most two
+    // optional inputs. Therefore, the inputs (x, weight, offset, mask) and (x,
+    // weight, offset, bias) are not distinguished before checking it in setup.
+    NBLA_CHECK(called_setup_, error_code::runtime,
+               "Call setup before calling this function.");
+    return grad_depends_input_data_impl(i, j);
+  }
+
+  /** Dependency flag for checking if i-th input is overwritten in forward or
+     not.
+
+      @param[in] i Input variable index.
+
+   */
+  virtual bool overwrite_input_data_in_forward(int i) const final {
+    // The order of inputs is not obvious before setup is called because of
+    // optional inputs.
+    NBLA_CHECK(called_setup_, error_code::runtime,
+               "Call setup before calling this function.");
+    return overwrite_input_data_in_forward_impl(i);
+  }
 
   /** Get in-place-level of i-th input variable's data (see below).
 
@@ -218,32 +264,6 @@ public:
         "This must be implemented for in-place support of this function.");
   }
 
-  /** Get in-place-level of i-th input variable's grad (see below).
-
-      * 0 (NOT_INPLACE): Not in-placed
-      * 1 (INPLACE_NOT_MODIFY): In-placed but not modified.
-      * 2 (INPLACE): In-placed and modified.
-
-      @param[in] i Input variable index.
-      @retval Returns 0 by default.
-      @note If a subclass uses in-place computation, the function must override
-     this function.
-   */
-  virtual int inplace_grad(int i) const { return NOT_INPLACE; }
-
-  /** Get the output variable index where i-th variables' grad in-placed to.
-
-      @param[in] i Input variable index.
-      @note This is only valid if the i-th variable is in-placed.
-            The maintainer of a sub-class function must override
-            this function.
-   */
-  virtual int inplace_grad_with(int i) const {
-    NBLA_ERROR(
-        error_code::not_implemented,
-        "This must be implemented for in-place support of this function.");
-  }
-
   /** A flag for preventing that the graph engine clears buffers of
       input variables even if clear_buffer is true and condition mets.
    */
@@ -253,6 +273,17 @@ public:
    * 0 even when accum is true.
    */
   virtual bool prohibit_zero_input_grad() const { return false; }
+
+  /** A flag for checking if setup_recompute() is needed.
+
+      Checking if o-th output' data requires setup_recompute().
+
+      @param[in] o Output variable index.
+
+      @note setup_recompute() will skipped during forward execution if none of
+     outputs requires setup_recompute().
+   */
+  virtual bool need_setup_recompute(int o) const { return false; }
 
   /** Copy another instance of Function with the same context.
   */
@@ -306,6 +337,50 @@ protected:
   virtual void backward_impl(const Variables &inputs, const Variables &outputs,
                              const vector<bool> &propagate_down,
                              const vector<bool> &accum) = 0;
+
+  /** Implementation part of setup_recompute().
+
+  It must do:
+
+  - Any process that needs to be done before forward execution for
+  recomputation. (e.g. Save random states for reproduction of forward execution
+  during recomputation.)
+
+  @sa setup() arguments.
+  */
+  virtual void setup_recompute_impl(const Variables &inputs,
+                                    const Variables &outputs) {
+    return;
+  };
+
+  /** Implementation part of setup_recompute().
+
+  It must do:
+
+  - Reproduce the previous forward execution.
+
+  @sa setup() arguments.
+  */
+  virtual void recompute_impl(const Variables &inputs,
+                              const Variables &outputs) {
+    this->forward_impl(inputs, outputs);
+  };
+
+  /**
+    If any of inputs does not require an input variable data when computing its
+    gradient, this function can be overridden to return appropriate boolean
+    value for memory optimization.
+  */
+  virtual bool grad_depends_input_data_impl(int i, int j) const { return true; }
+
+  /**
+    If any of inputs are overwritten in forward, this function must be
+    overridden to return appropriate boolean value. Otherwise, backward
+    computation will be incorrect.
+  */
+  virtual bool overwrite_input_data_in_forward_impl(int i) const {
+    return false;
+  }
 
   DISABLE_COPY_AND_ASSIGN(Function);
 };

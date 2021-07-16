@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +16,7 @@
 #include <nbla/array.hpp>
 #include <nbla/common.hpp>
 #include <nbla/function/random_erase.hpp>
+#include <nbla/random_manager.hpp>
 #include <nbla/variable.hpp>
 
 namespace nbla {
@@ -70,15 +72,15 @@ void generate_random_coords(float *random_coords, const size_t N,
   };
 
   if (share) {
-    for (int n = 0; n < N; n++) {
-      for (int b = 0; b < B; b++) {
+    for (int n = 0; static_cast<size_t>(n) < N; n++) {
+      for (int b = 0; static_cast<size_t>(b) < B; b++) {
         random_coords = generate_coords_and_next(random_coords);
       }
     }
   } else {
-    for (int n = 0; n < N; n++) {
-      for (int b = 0; b < B; b++) {
-        for (size_t c = 0; c < C; c++) {
+    for (int n = 0; static_cast<size_t>(n) < N; n++) {
+      for (int b = 0; static_cast<size_t>(b) < B; b++) {
+        for (size_t c = 0; static_cast<size_t>(c) < C; c++) {
           random_coords = generate_coords_and_next(random_coords);
         }
       }
@@ -201,7 +203,7 @@ void RandomErase<T>::setup_impl(const Variables &inputs,
   NBLA_CHECK(n_ > 0, error_code::value, "n must be positive. n = %d.", n_);
   NBLA_CHECK(replacements_.size() == 2, error_code::value,
              "Length of replacements must be 2.");
-  NBLA_CHECK(base_axis_ < inputs[0]->shape().size(), error_code::value,
+  NBLA_CHECK((size_t)base_axis_ < inputs[0]->shape().size(), error_code::value,
              "base_axis must be less than ndim of inputs[0]. "
              "base_axis: %d >= ndim of inputs[0]: %d.",
              base_axis_, inputs[0]->shape().size());
@@ -212,15 +214,21 @@ void RandomErase<T>::setup_impl(const Variables &inputs,
   outputs[0]->reshape(inputs[0]->shape(), true);
   if (inplace_) {
     outputs[0]->data()->set_array(inputs[0]->data()->array());
-    outputs[0]->grad()->set_array(inputs[0]->grad()->array());
   }
 
   rgen_ = std::mt19937((seed_ == -1 ? std::random_device()() : seed_));
 }
 
 template <typename T>
-void RandomErase<T>::forward_impl(const Variables &inputs,
-                                  const Variables &outputs) {
+void RandomErase<T>::setup_recompute_impl(const Variables &inputs,
+                                          const Variables &outputs) {
+  save_rng_ = true;
+}
+
+template <typename T>
+void RandomErase<T>::random_erase(const Variables &inputs,
+                                  const Variables &outputs,
+                                  std::mt19937 &rgen) {
   NBLA_CHECK(!channel_last_, error_code::value,
              "Channel Last is not supported in CPU.");
 
@@ -244,7 +252,7 @@ void RandomErase<T>::forward_impl(const Variables &inputs,
       this->random_coordinates_->cast(get_dtype<float>(), this->ctx_)
           ->template pointer<float>();
   generate_random_coords<T>(random_coords, N, B, C, H, W, area_ratios_,
-                            aspect_ratios_, share_, rgen_);
+                            aspect_ratios_, share_, rgen);
 
   // Copy once
   auto size = inputs[0]->size();
@@ -256,8 +264,7 @@ void RandomErase<T>::forward_impl(const Variables &inputs,
   for (decltype(n_) n = 0; n < n_; n++) {
     for (decltype(B) b = 0; b < B; b++) {
       auto out = y + (b * Bs);
-      erase_2d(out, random_coords, C, H, W, prob_, replacements_, share_,
-               rgen_);
+      erase_2d(out, random_coords, C, H, W, prob_, replacements_, share_, rgen);
       if (share_) {
         random_coords = random_coords + 5;
       } else {
@@ -269,6 +276,27 @@ void RandomErase<T>::forward_impl(const Variables &inputs,
   if (!ste_fine_grained_) {
     this->random_coordinates_ = nullptr;
   }
+}
+
+template <typename T>
+void RandomErase<T>::forward_impl(const Variables &inputs,
+                                  const Variables &outputs) {
+  std::mt19937 &rgen =
+      seed_ == -1 ? SingletonManager::get<RandomManager>()->get_rand_generator()
+                  : rgen_;
+  // Remember the random state for recomputation.
+  if (save_rng_) {
+    rgen_for_recompute_ = rgen;
+  }
+
+  random_erase(inputs, outputs, rgen);
+}
+
+template <typename T>
+void RandomErase<T>::recompute_impl(const Variables &inputs,
+                                    const Variables &outputs) {
+  auto rgen = rgen_for_recompute_;
+  random_erase(inputs, outputs, rgen);
 }
 
 template <typename T>
@@ -289,8 +317,7 @@ void RandomErase<T>::backward_impl(const Variables &inputs,
   auto H = shape[base_axis_ + 1];
   auto W = shape[base_axis_ + 2];
 
-  T *g_x = inputs[0]->cast_grad_and_get_pointer<T>(this->ctx_,
-                                                   !(inplace_ || accum[0]));
+  T *g_x = inputs[0]->cast_grad_and_get_pointer<T>(this->ctx_, !accum[0]);
   const T *g_y = outputs[0]->get_grad_pointer<T>(this->ctx_);
 
   // STE
@@ -327,8 +354,10 @@ void RandomErase<T>::backward_impl(const Variables &inputs,
             xe_start = random_coords[idx + 2];
             ye_end = random_coords[idx + 3];
             xe_end = random_coords[idx + 4];
-            if ((eprob <= prob_) && (ye_start <= h && h <= ye_end) &&
-                (xe_start <= w && w <= xe_end)) {
+            if ((eprob <= prob_) && (ye_start <= static_cast<size_t>(h) &&
+                                     static_cast<size_t>(h) <= ye_end) &&
+                (xe_start <= static_cast<size_t>(w) &&
+                 static_cast<size_t>(w) <= xe_end)) {
               fall = true;
               break;
             }

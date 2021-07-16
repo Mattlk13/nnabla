@@ -108,8 +108,8 @@ cdef c_as_numpy_array(CNdArray * arrp, str mode, cpp_bool force_dtype=False, int
 
 cdef class NdArray:
     """
-    :class:`nnabla._nd_array.NdArray` is a device-agnostic data container for multi-dimensional arrays (tensors).
-    :class:`nnabla._nd_array.NdArray` can also implicitly handle data transfers across different devices (e.g. CPU to CUDA GPU, CUDA GPU to CPU).
+    :class:`nnabla.NdArray` is a device-agnostic data container for multi-dimensional arrays (tensors).
+    :class:`nnabla.NdArray` can also implicitly handle data transfers across different devices (e.g. CPU to CUDA GPU, CUDA GPU to CPU).
     See `Python API Tutorial <http://nnabla.readthedocs.io/en/latest/python/tutorial/python_api.html>`_ for more details.
 
     :class:`~nnabla.NdArray` overrides some arithmetic operators
@@ -146,7 +146,7 @@ cdef class NdArray:
             nparr (~numpy.ndarray): Numpy multi-dimensional array.
 
         Returns: 
-            nnabla._nd_array.NdArray
+            nnabla.NdArray
 
         """
         assert isinstance(nparr, np.ndarray)
@@ -155,7 +155,23 @@ cdef class NdArray:
         a.data = nparr
         return a
 
-    def __init__(self, shape=tuple()):
+    def __init__(self, *args, **kwargs):
+        arg_n = len(args)
+        err_msg = "Input argument should be a tuple or a tuple-like dimension define."
+        if arg_n == 0:
+            shape=tuple()
+        elif arg_n == 1:
+            if type(args[0]) == int:
+                shape = (args[0], )
+            elif type(args[0]) in [tuple, list]:
+                shape = tuple(args[0])
+            else:
+                raise ValueError(err_msg)
+        elif arg_n > 1:
+            if all([type(x) == int for x in args]):
+                shape = tuple(args)
+            else:
+                raise ValueError(err_msg)
         cdef int i
         cdef Shape_t cshape
         cdef int size = len(shape)
@@ -303,7 +319,7 @@ cdef class NdArray:
         """
         Returns the values held by this array as a :class:`numpy.ndarray`.
         Note that only the references are returned, and the values are not copied. Therefore,
-        modifying the returned :class:`nnabla._nd_array.NdArray` will affect the data contained inside the
+        modifying the returned :class:`nnabla.NdArray` will affect the data contained inside the
         NNabla array.
         This method can also be called as a setter where an array is created as the same type as rhs.
         There is an exception where `zero()` or `fill(rhs)` is invoked if a scalar with a float or an
@@ -354,12 +370,12 @@ cdef class NdArray:
                 * 'rw': You can both read and write.
             dtype (:obj:`numpy.dtype`, optional): Force dtype of a returned array.
 
-        See :function:`nnabla._nd_array.NdArray.data` for more details.
+        See :function:`nnabla.NdArray.data` for more details.
 
         '''
         if dtype is None:
             return c_as_numpy_array(self.arrp, mode)
-        return c_as_numpy_array(self.arrp, mode, True, dtype)
+        return c_as_numpy_array(self.arrp, mode, True, np.dtype(dtype).num)
 
 
     def zero(self):
@@ -390,6 +406,13 @@ cdef class NdArray:
         """
         self.arrp.fill(value)
 
+    def clear(self):
+        """
+        Clear memories which this NdArray has and return them to allocator.
+        """
+
+        self.arrp.array().get().clear()
+
     @property
     def zeroing(self):
         '''Checking if the array is not modified after calling `zero()`.'''
@@ -407,6 +430,18 @@ cdef class NdArray:
         cdef int type_num
         type_num = <int > self.arrp.array().get().dtype()
         return np.dtype(np.PyArray_TypeObjectFromType(type_num))
+
+    @property
+    def modification_count(self):
+        '''Returns how many times modified after memory allocation or clearing buffer.
+        '''
+        return self.arrp.array().get().modification_count()
+
+    @property
+    def clear_called(self):
+        '''Checking if the array is not modified after cleared. This returns False until clear is called at the first time.
+        '''
+        return self.arrp.array().get().clear_called()
 
     def __pos__(self):
         return AOP.pos(self)
@@ -435,50 +470,49 @@ cdef class NdArray:
     def __iadd__(self, x):
         import nnabla.functions as F
         if isinstance(x, (NdArray, Variable)):
-            F.add2(self, x, outputs=[self])
+            F.add2(self, x, inplace=True)
         else:
-            F.add_scalar(self, x, outputs=[self])
+            F.add_scalar(self, x, inplace=True)
         return self
 
     def __isub__(self, x):
         import nnabla.functions as F
         if isinstance(x, (NdArray, Variable)):
-            F.sub2(self, x, outputs=[self])
+            F.sub2(self, x, inplace=True)
         else:
-            F.add_scalar(self, -x, outputs=[self])
+            F.add_scalar(self, -x, inplace=True)
         return self
 
     def __imul__(self, x):
         import nnabla.functions as F
         if isinstance(x, (NdArray, Variable)):
-            F.mul2(self, x, outputs=[self])
+            return F.mul2(self, x)
         else:
-            F.mul_scalar(self, x, outputs=[self])
+            F.mul_scalar(self, x, inplace=True)
         return self
 
     def __idiv__(self, x):
         import nnabla.functions as F
         if isinstance(x, (NdArray, Variable)):
-            F.div2(self, x, outputs=[self])
+            return F.div2(self, x)
         else:
-            F.mul_scalar(self, 1. / x, outputs=[self])
+            F.mul_scalar(self, 1. / x, inplace=True)
         return self
 
     def __itruediv__(self, x):
         import nnabla.functions as F
         if isinstance(x, (NdArray, Variable)):
-            F.div2(self, x, outputs=[self])
+            return F.div2(self, x)
         else:
-            F.mul_scalar(self, 1. / x, outputs=[self])
+            F.mul_scalar(self, 1. / x, inplace=True)
         return self
 
     def __ipow__(self, x):
         import nnabla.functions as F
         if isinstance(x, (NdArray, Variable)):
-            F.pow2(self, x, outputs=[self])
+            return F.pow2(self, x)
         else:
-            F.pow_scalar(self, x, outputs=[self])
-        return self
+            return F.pow_scalar(self, x)
 
     def copy_from(self, NdArray arr, use_current_context=True):
         """

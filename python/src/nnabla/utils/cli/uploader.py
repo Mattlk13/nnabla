@@ -1,7 +1,23 @@
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 import boto3
 import csv
+import json
 import os
-import requests
+import urllib.parse
+import urllib.request as request
 import shutil
 import tarfile
 import tempfile
@@ -94,12 +110,13 @@ class Uploader:
         else:
             self._log('Getting Upload path from [{}]'.format(endpoint))
 
-        r = requests.get('{}/v1/misc/credential'.format(endpoint),
-                         params={
+        params = urllib.parse.urlencode({
             'encrypted_text': token,
             'dataset_name': name,
-            'dataset_size': size})
-        info = r.json()
+            'dataset_size': size
+        })
+        r = request.urlopen(f'{endpoint}/v1/misc/credential?{params}')
+        info = json.loads(r.read().decode())
 
         if 'upload_path' not in info:
             if endpoint == 'https://console-api.dl.sony.com':

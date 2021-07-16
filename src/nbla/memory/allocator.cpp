@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ Allocator::~Allocator() {}
 
 AllocatorMemory Allocator::alloc(size_t bytes, const string &device_id) {
   // Ensuring at least 1 byte. Workaround while knowing that it's in efficient.
+  std::lock_guard<std::mutex> lock(mutex_);
   bytes = std::max(bytes, (size_t)1);
   auto mem = this->alloc_impl(bytes, device_id);
   device_memory_used_in_bytes_.insert(
@@ -33,6 +34,8 @@ AllocatorMemory Allocator::alloc(size_t bytes, const string &device_id) {
   return AllocatorMemory(mem, this->shared_from_this());
 }
 void Allocator::free(shared_ptr<Memory> memory) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  memory->release();
   size_t bytes = memory->bytes();
   string device_id = memory->device_id();
   this->free_impl(memory);
@@ -95,14 +98,18 @@ AllocatorMemory::AllocatorMemory(shared_ptr<Memory> memory,
     : memory_(memory), allocator_(allocator) {
   memory->lock();
 }
+
+AllocatorMemory::AllocatorMemory() : memory_(nullptr), allocator_(nullptr) {}
+
 void AllocatorMemory::release() {
   if (!memory_) {
     return;
   }
-  memory_->release();
+  // memory_->release(); Move it to lock protected scope
   allocator_->free(memory_);
   memory_ = nullptr;
 }
+
 AllocatorMemory::~AllocatorMemory() { this->release(); }
 
 AllocatorMemory::AllocatorMemory(AllocatorMemory &&rhs) {

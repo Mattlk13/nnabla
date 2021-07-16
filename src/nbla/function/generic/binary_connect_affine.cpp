@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -47,7 +47,7 @@ void BinaryConnectAffine<T>::setup_impl(const Variables &inputs,
              "Binary and float weights must have same size. "
              "Ndim of inputs[1]: %d != ndim of inputs[2]: %d.",
              inputs[1]->shape().size(), inputs[2]->shape().size());
-  for (int i = 0; i < inputs[1]->shape().size(); ++i) {
+  for (Shape_t::size_type i = 0; i < inputs[1]->shape().size(); ++i) {
     NBLA_CHECK(inputs[1]->shape()[i] == inputs[2]->shape()[i],
                error_code::value,
                "Binary and float weights must have same size. "

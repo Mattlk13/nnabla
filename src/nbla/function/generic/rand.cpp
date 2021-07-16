@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +17,7 @@
  */
 #include <nbla/array.hpp>
 #include <nbla/function/rand.hpp>
+#include <nbla/random_manager.hpp>
 #include <nbla/variable.hpp>
 
 #include <random>
@@ -31,12 +33,39 @@ void Rand<T>::setup_impl(const Variables &inputs, const Variables &outputs) {
 }
 
 template <typename T>
+void Rand<T>::setup_recompute_impl(const Variables &inputs,
+                                   const Variables &outputs) {
+  save_rng_ = true;
+}
+
+template <typename T>
 void Rand<T>::forward_impl(const Variables &inputs, const Variables &outputs) {
   std::uniform_real_distribution<typename force_float<T>::type> rdist(low_,
                                                                       high_);
+  std::mt19937 &rgen =
+      seed_ == -1 ? SingletonManager::get<RandomManager>()->get_rand_generator()
+                  : rgen_;
+  // Remember the random state for recomputation.
+  if (save_rng_) {
+    rgen_for_recompute_ = rgen;
+  }
+
   T *y = outputs[0]->cast_data_and_get_pointer<T>(this->ctx_, true);
   for (int s = 0; s < outputs[0]->size(); s++) {
-    y[s] = rdist(rgen_);
+    y[s] = rdist(rgen);
+  }
+}
+
+template <typename T>
+void Rand<T>::recompute_impl(const Variables &inputs,
+                             const Variables &outputs) {
+  std::uniform_real_distribution<typename force_float<T>::type> rdist(low_,
+                                                                      high_);
+  auto rgen = rgen_for_recompute_;
+
+  T *y = outputs[0]->cast_data_and_get_pointer<T>(this->ctx_, true);
+  for (int s = 0; s < outputs[0]->size(); s++) {
+    y[s] = rdist(rgen);
   }
 }
 

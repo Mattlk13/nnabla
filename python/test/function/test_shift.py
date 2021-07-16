@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ ctxs = list_context('Shift')
 def ref_shift(x, shifts, border_mode):
     if shifts is None:
         shifts = (0,) * len(x.shape)
-    return scipy_shift(x, shifts, mode=border_mode)
+    return scipy_shift(x, shifts, mode=border_mode, order=1)
 
 
 @pytest.mark.parametrize("ctx, func_name", ctxs)

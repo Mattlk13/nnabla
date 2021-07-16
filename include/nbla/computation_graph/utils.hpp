@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Sony Corporation. All Rights Reserved.
+// Copyright 2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -39,11 +39,11 @@ inline shared_ptr<CgVariable> get_item_nd(const Context &ctx,
   Shape_t in_shape = in->variable()->shape();
   vector<int> stop{in_shape.begin(), in_shape.end()};
 
-  for (int i = 0; i < slice_shape.size(); i++) {
+  for (vector<int>::size_type i = 0; i < slice_shape.size(); i++) {
     start[i] += slice_shape[i];
   }
 
-  for (int i = 0; i < slice_shape.size(); i++) {
+  for (vector<int>::size_type i = 0; i < slice_shape.size(); i++) {
     if (start[i] + 1 < stop[i])
       stop[i] = start[i] + 1;
   }

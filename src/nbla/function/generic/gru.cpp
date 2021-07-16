@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -216,7 +216,7 @@ GRU<T>::gru_cell(shared_ptr<CgVariable> x, shared_ptr<CgVariable> h,
       make_shared<CgFunction>(create_Transpose(this->ctx_, t_axes));
   auto affine4 = make_shared<CgFunction>(create_Affine(this->ctx_, 1));
   auto tanh = make_shared<CgFunction>(create_Tanh(this->ctx_));
-  auto mul2 = make_shared<CgFunction>(create_Mul2(this->ctx_));
+  auto mul2 = make_shared<CgFunction>(create_Mul2(this->ctx_, false));
   auto add2 = make_shared<CgFunction>(create_Add2(this->ctx_, true));
 
   vector<CgVariablePtr> param1;
@@ -245,8 +245,8 @@ GRU<T>::gru_cell(shared_ptr<CgVariable> x, shared_ptr<CgVariable> h,
   auto param3 = connect(mul2, {r_t[0], param2[0]}, 1);
   auto n_t = connect(tanh, {connect(add2, {param1[0], param3[0]}, 1)[0]}, 1);
 
-  auto mul2_1 = make_shared<CgFunction>(create_Mul2(this->ctx_));
-  auto mul2_2 = make_shared<CgFunction>(create_Mul2(this->ctx_));
+  auto mul2_1 = make_shared<CgFunction>(create_Mul2(this->ctx_, false));
+  auto mul2_2 = make_shared<CgFunction>(create_Mul2(this->ctx_, false));
   auto add2_1 = make_shared<CgFunction>(create_Add2(this->ctx_, true));
   auto r_sub_scalar = make_shared<CgFunction>(create_RSubScalar(this->ctx_, 1));
 
@@ -295,7 +295,7 @@ vector<vector<CgVariablePtr>> GRU<T>::create_fixed_length_gru_graph(
           cg_utils::get_item_nd(this->ctx_, in_b, vector<int>{i, 0}); // b[i, 0]
     }
 
-    for (int k = 0; k < xs.size(); k++) {
+    for (vector<CgVariablePtr>::size_type k = 0; k < xs.size(); k++) {
       hf_var = gru_cell(xs[k], hf_var, wf_var, bf_var);
       hs.push_back(hf_var);
     }
@@ -317,7 +317,7 @@ vector<vector<CgVariablePtr>> GRU<T>::create_fixed_length_gru_graph(
       std::reverse(std::begin(xs), std::end(xs));
     }
 
-    for (int k = 0; k < xs.size(); k++) {
+    for (vector<CgVariablePtr>::size_type k = 0; k < xs.size(); k++) {
       int j = xs.size() - 1 - k;
       hb_var = gru_cell(xs[k], hb_var, wb_var, bb_var);
       auto concatenate =

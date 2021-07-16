@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -39,6 +40,7 @@ Outputs:
 @param val Value of the scalar.
 \ingroup FunctionImplGrp
 */
-NBLA_DEFINE_TRANSFORM_UNARY_1(MulScalar, x *(T)a0, dy *(T)a0, false, double);
+NBLA_DEFINE_TRANSFORM_UNARY_1_INPLACE(MulScalar, x *(T)a0, dy *(T)a0, false,
+                                      false, double, false);
 }
 #endif

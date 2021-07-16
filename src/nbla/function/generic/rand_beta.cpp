@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +18,7 @@
 #include <nbla/array.hpp>
 #include <nbla/common.hpp>
 #include <nbla/function/rand_beta.hpp>
+#include <nbla/random_manager.hpp>
 #include <nbla/variable.hpp>
 
 #include <random>
@@ -33,8 +35,14 @@ void RandBeta<T>::setup_impl(const Variables &inputs,
 }
 
 template <typename T>
-void RandBeta<T>::forward_impl(const Variables &inputs,
-                               const Variables &outputs) {
+void RandBeta<T>::setup_recompute_impl(const Variables &inputs,
+                                       const Variables &outputs) {
+  save_rng_ = true;
+}
+
+template <typename T>
+void RandBeta<T>::random_beta(const Variables &inputs, const Variables &outputs,
+                              std::mt19937 &rgen) {
   std::uniform_real_distribution<typename force_float<T>::type> rdist(0.0, 1.0);
   std::gamma_distribution<typename force_float<T>::type> gdist1(alpha_, 1);
   std::gamma_distribution<typename force_float<T>::type> gdist2(beta_, 1);
@@ -44,8 +52,8 @@ void RandBeta<T>::forward_impl(const Variables &inputs,
     int s = 0;
     while (s < outputs[0]->size()) {
       float U, V, X, Y, XpY;
-      U = (T)rdist(rgen_);
-      V = (T)rdist(rgen_);
+      U = (T)rdist(rgen);
+      V = (T)rdist(rgen);
       X = std::pow(U, 1 / alpha_);
       Y = std::pow(V, 1 / beta_);
       XpY = X + Y;
@@ -68,11 +76,32 @@ void RandBeta<T>::forward_impl(const Variables &inputs,
   } else {
     for (int s = 0; s < outputs[0]->size(); s++) {
       float Ga, Gb;
-      Ga = (T)gdist1(rgen_);
-      Gb = (T)gdist2(rgen_);
+      Ga = (T)gdist1(rgen);
+      Gb = (T)gdist2(rgen);
       y[s] = Ga / (Ga + Gb);
     }
   }
+}
+
+template <typename T>
+void RandBeta<T>::forward_impl(const Variables &inputs,
+                               const Variables &outputs) {
+  std::mt19937 &rgen =
+      seed_ == -1 ? SingletonManager::get<RandomManager>()->get_rand_generator()
+                  : rgen_;
+  // Remember the random state for recomputation.
+  if (save_rng_) {
+    rgen_for_recompute_ = rgen;
+  }
+
+  random_beta(inputs, outputs, rgen);
+}
+
+template <typename T>
+void RandBeta<T>::recompute_impl(const Variables &inputs,
+                                 const Variables &outputs) {
+  auto rgen = rgen_for_recompute_;
+  random_beta(inputs, outputs, rgen);
 }
 
 template <typename T>

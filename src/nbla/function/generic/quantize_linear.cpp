@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -47,7 +47,7 @@ void QuantizeLinear<T>::setup_impl(const Variables &inputs,
 
   outputs[0]->reshape(inputs[0]->shape(), true);
 
-  div2_ = create_Div2(this->ctx_);
+  div2_ = create_Div2(this->ctx_, false);
   add2_ = create_Add2(this->ctx_, false);
   // sum_ = create_Sum(this->ctx_);  // used for scale and zero point gradients
 
@@ -126,7 +126,6 @@ void QuantizeLinear<T>::backward_impl(const Variables &inputs,
 
   auto x = inputs[0];
   auto scale = inputs[1];
-  auto zero_point = inputs[2];
   auto y = outputs[0];
   auto dx_sptr = make_shared<Variable>(x->shape());
   auto dy_sptr = make_shared<Variable>(y->shape());

@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -46,7 +47,11 @@ void FusedConvolution<T>::get_optional_input_pointers(const Variables &inputs) {
   case 3:
     // Assume bias vector is one dimensional vector, while z has a spatial
     // structure.
-    input_variables_[Z] = {2, inputs[2]};
+    if (inputs[2]->ndim() == 1) {
+      input_variables_[BIAS] = {2, inputs[2]};
+    } else {
+      input_variables_[Z] = {2, inputs[2]};
+    }
     break;
   case 4:
     // No BN.
@@ -60,15 +65,12 @@ void FusedConvolution<T>::get_optional_input_pointers(const Variables &inputs) {
   case 7: {
     // Assume bias vector is one dimensional vector, while bn args and z have
     // spatial dimensions.
-    size_t offset = 0;
     NBLA_CHECK(inputs[2]->ndim() != 1, error_code::value,
-               "Wrong input shape. It seeems that you pass convolution bias "
+               "Wrong input shape. It seems that you pass convolution bias "
                "and batch normalization inputs at the same time (prohibited).");
     // No bias nor z
     set_bn_ptrs();
-    if (!offset) {
-      input_variables_[Z] = {6, inputs[6]};
-    }
+    input_variables_[Z] = {6, inputs[6]};
     break;
   }
   default:
@@ -173,7 +175,8 @@ void FusedConvolution<T>::setup_impl(const Variables &inputs,
     vector<int> axes{channel_last_ ? (int)(inputs[0]->ndim() - 1) : base_axis_};
     last_out = functions::batch_normalization(
         ctx_, last_out, cg_beta, cg_gamma, cg_mean, cg_variance, axes,
-        decay_rate_, eps_, batch_stat_)[0];
+        decay_rate_, eps_, batch_stat_, false /* no_scale */,
+        false /* no_bias */)[0];
   }
 
   // ----------------------------------------------------------------
@@ -221,6 +224,7 @@ void FusedConvolution<T>::setup_impl(const Variables &inputs,
   // array.
   std::unordered_set<CgFunctionPtr> fclosed;
   last_out->visit_function_recursive(last_out->parent(), fclosed,
+                                     false /* as_recomputation */,
                                      [](CgFunctionPtr fn) { fn->setup(); });
   this->last_output_cg_variable_ = last_out;
 }
@@ -229,6 +233,29 @@ template <typename T>
 void FusedConvolution<T>::forward_impl(const Variables &inputs,
                                        const Variables &outputs) {
   reset_cg_variables(inputs, outputs);
+  bool clear_buffer =
+      SingletonManager::get<GlobalClearBufferState>()->clear_buffer();
+  last_output_cg_variable_->forward(clear_buffer, false);
+}
+
+template <typename T>
+void FusedConvolution<T>::recompute_impl(const Variables &inputs,
+                                         const Variables &outputs) {
+  // Prohibit updating running mean and running variance.
+  // Use dummy buffers for rm and rv when batch_norm is fused and `batch_stat_
+  // == true`.
+  auto inputs_with_dummy = inputs;
+  Variable mean_dummy, variance_dummy;
+  // Whether batch_normalization is fused.
+  if (input_cg_variables_[BETA] && batch_stat_) {
+    const auto m_idx = this->input_variables_[MEAN].first;
+    const auto v_idx = this->input_variables_[VARIANCE].first;
+    mean_dummy.reshape(inputs[m_idx]->shape(), true);
+    variance_dummy.reshape(inputs[v_idx]->shape(), true);
+    inputs_with_dummy[m_idx] = &mean_dummy;
+    inputs_with_dummy[v_idx] = &variance_dummy;
+  }
+  reset_cg_variables(inputs_with_dummy, outputs);
   bool clear_buffer =
       SingletonManager::get<GlobalClearBufferState>()->clear_buffer();
   last_output_cg_variable_->forward(clear_buffer, false);
@@ -262,7 +289,8 @@ void FusedConvolution<T>::backward_impl(const Variables &inputs,
   // Propagate need_grad states
   std::unordered_set<CgFunctionPtr> fclosed;
   last_output_cg_variable_->visit_function_recursive(
-      last_output_cg_variable_->parent(), fclosed, [](CgFunctionPtr fn) {});
+      last_output_cg_variable_->parent(), fclosed, false /* recomputation */,
+      [](CgFunctionPtr fn) {});
 
   last_output_cg_variable_->backward(outputs[0]->grad(), true);
 }

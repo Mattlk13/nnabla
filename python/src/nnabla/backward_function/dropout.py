@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,59 +13,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import nnabla as nn
+
 import nnabla.functions as F
-from .backward_function import BackwardFunction
+from .utils import no_grad, get_output
 
 
-class DropoutBackward(BackwardFunction):
+def dropout_backward(inputs, p=0.5, seed=-1, output_mask=False):
+    """
+    Args:
+      inputs (list of nn.Variable): Incomming grads/inputs to/of the forward function.
+      kwargs (dict of arguments): Dictionary of the corresponding function arguments.
 
-    @property
-    def name(self):
-        return 'DropoutBackward'
+    Return:
+      list of Variable: Return the gradients wrt inputs of the corresponding function.
+    """
 
-    def _create_forward_inputs_and_outputs(self, inputs, outputs):
-        # Inputs on the forward graph
-        inputs_fwd = []
-        for i in range(self._num_inputs_fwd):
-            need_grad = self.forward_func.inputs[i].need_grad
-            v = nn.Variable(inputs[i].shape, need_grad=need_grad)
-            v.data = inputs[i].data
-            v.grad = outputs[i].data
-            inputs_fwd += [v]
-        # Outputs on the forward graph
-        outputs_fwd = []
-        for i in range(self._num_outputs_fwd):
-            inp = inputs[self._num_inputs_fwd + i]
-            v = nn.Variable(inp.shape)
-            v.grad = inp.data
-            outputs_fwd += [v]
-        return inputs_fwd, outputs_fwd
+    if not output_mask:
+        raise ValueError(
+            "dropout_backward is supported for output_mask=True.")
+    dy0 = inputs[0]
+    dy1 = inputs[1]
+    x0 = inputs[2]
 
-    def backward_impl(self, inputs, outputs, prop_down, accum):
-        # inputs: [inputs_fwd_graph] + [inputs_bwd_graph] or
-        # [inputs_fwd_graph] + [outputs_fwd_graph] + [inputs_bwd_graph]
-
-        # Args
-        p = self.forward_func.info.args["p"]
-
-        # Inputs
-        x0 = inputs[0].data
-        dy = inputs[1].data
-        # Outputs
-        dx0 = outputs[0].data
-        # Grads of inputs
-        g_x0 = inputs[0].grad
-        g_dy = inputs[1].grad
-        # Grads of outputs
-        g_dx0 = outputs[0].grad
-
-        # Computation
-        if prop_down[1]:
-            # TODO: Optimize by creating dropout with mask
-            # dx0 is not accumulated in the backward graph
-            mask = F.not_equal_scalar(dx0, 0.0)
-            if accum[1]:
-                g_dy += g_dx0 * mask / (1.0 - p)
-            else:
-                g_dy.copy_from(g_dx0 * mask / (1.0 - p))
+    y1 = get_output(x0, "Dropout", nth_output=1)
+    m0 = y1.get_unlinked_variable()  # mask
+    dx0 = dy0 * m0 / (1 - p)
+    return dx0

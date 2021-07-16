@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -55,6 +56,6 @@ NBLA_DEFINE_TRANSFORM_BINARY_1(
     (T)-2 * dy * (std::abs(x0 - x1) < (T)a0
                       ? (x0 - x1)
                       : ((x0 - x1) > (T)0 ? (T)1 : (T)-1) * (T)a0),
-    false, false, float);
+    false, false, true, true, float);
 }
 #endif

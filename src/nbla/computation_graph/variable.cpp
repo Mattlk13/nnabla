@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +16,8 @@
 #include <nbla/computation_graph/computation_graph.hpp>
 #include <nbla/computation_graph/function.hpp>
 #include <nbla/computation_graph/variable.hpp>
+#include <nbla/global_function_callback.hpp>
+#include <nbla/singleton_manager-internal.hpp>
 
 #include <cstdint>
 #include <iostream>
@@ -44,17 +47,48 @@ using std::get;
 using std::unique_ptr;
 using std::vector;
 
+/** FunctionHookWithObject Implementation **/
 FunctionHookWithObject::FunctionHookWithObject() {}
+
 FunctionHookWithObject::FunctionHookWithObject(
-    void *obj, FunctionHookWithObject::callback_type cb,
-    FunctionHookWithObject::cleanup_callback_type cleanup_cb)
-    : obj_(obj), callback_(cb), cleanup_callback_(cleanup_cb) {}
+    const FunctionHookWithObject &from)
+    : obj_(from.obj_), callback_(from.callback_),
+      setup_callback_(from.setup_callback_),
+      cleanup_callback_(from.cleanup_callback_) {
+  setup_callback_(obj_);
+}
+
+FunctionHookWithObject::FunctionHookWithObject(void *obj, callback_type cb,
+                                               setup_callback_type setup_cb,
+                                               cleanup_callback_type cleanup_cb)
+    : obj_(obj), callback_(cb), setup_callback_(setup_cb),
+      cleanup_callback_(cleanup_cb) {
+  setup_callback_(obj_);
+}
 
 FunctionHookWithObject::~FunctionHookWithObject() { cleanup_callback_(obj_); }
+
+FunctionHookWithObject &FunctionHookWithObject::
+operator=(const FunctionHookWithObject &rhs) {
+  // check self-assignment
+  if (&rhs == this)
+    return *this;
+
+  obj_ = rhs.obj_;
+  callback_ = rhs.callback_;
+  setup_callback_ = rhs.setup_callback_;
+  cleanup_callback_ = rhs.cleanup_callback_;
+
+  setup_callback_(obj_);
+
+  return *this;
+}
+
 void FunctionHookWithObject::operator()(const CgFunctionPtr &f) {
   callback_(obj_, f);
 }
 
+/** CgVariable Implementation **/
 CgVariable::CgVariable() { var_ = make_shared<Variable>(Shape_t{}); }
 CgVariable::CgVariable(bool need_grad) : CgVariable() {
   set_need_grad(need_grad);
@@ -73,21 +107,27 @@ CgVariable::CgVariable(VariablePtr var, bool need_grad) : CgVariable(var) {
 class ForwardCallback {
   bool clear_buffer_{false};
   bool clear_no_need_grad_{false};
+  bool as_recomputation_{false};
   function_hook_type function_pre_hook_;
   function_hook_type function_post_hook_;
-  unordered_map<CgVariablePtr, int> vseen_;
+  unordered_map<CgVariablePtr, unsigned int> vseen_;
+  unordered_set<CgVariablePtr> need_grad_variable_set_;
+  unordered_set<CgVariablePtr> inplace_variable_set_;
+  unordered_set<CgVariablePtr> overwrite_variable_set_;
   vector<string> history_;
 
 public:
   ForwardCallback(bool clear_buffer, bool clear_no_need_grad,
-                  function_hook_type function_pre_hook,
+                  bool as_recomputation, function_hook_type function_pre_hook,
                   function_hook_type function_post_hook)
       : clear_buffer_(clear_buffer), clear_no_need_grad_(clear_no_need_grad),
+        as_recomputation_(as_recomputation),
         function_pre_hook_(function_pre_hook),
         function_post_hook_(function_post_hook) {}
 
   bool check_last_visit(CgVariablePtr v) {
-    if (v->function_reference_count() < 2) {
+    size_t num_ref = v->function_reference_count();
+    if (num_ref < 2) {
       // A variable referenced by <2 is always visited last.
       return true;
     }
@@ -99,7 +139,7 @@ public:
       return false;
     }
     // Check
-    if (++(it->second) == v->function_reference_count()) {
+    if (++(it->second) == num_ref) {
       // For better search performance of another. (maybe not required)
       vseen_.erase(it);
       return true;
@@ -107,11 +147,56 @@ public:
     return false;
   }
 
-  vector<bool> get_clear_flags(CgFunctionPtr func) {
+  // Check if input/output[target_idx] are needed for backward calculation.
+  // Return true if needed and false otherwise.
+  template <bool INPUT>
+  bool check_grad_depends_data(CgFunctionPtr func,
+                               vector<CgVariablePtr>::size_type target_idx) {
+
     auto inputs = func->inputs();
+    for (vector<CgVariablePtr>::size_type i = 0; i < inputs.size(); i++) {
+      if (INPUT) {
+        if (func->function()->grad_depends_input_data(i, target_idx)) {
+          return true;
+        }
+      } else { // OUTPUT
+        if (func->function()->grad_depends_output_data(i, target_idx)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  vector<bool> get_clear_flags(CgFunctionPtr func) {
+    auto outputs = func->outputs();
+    auto inputs = func->inputs();
+
+    for (vector<CgVariablePtr>::size_type o = 0; o < outputs.size(); ++o) {
+      if (func->need_grad() && check_grad_depends_data<false>(func, o)) {
+        need_grad_variable_set_.insert(outputs[o]);
+      }
+    }
+
     vector<bool> ret(inputs.size(), false);
-    for (int i = 0; i < inputs.size(); ++i) {
+    for (vector<CgVariablePtr>::size_type i = 0; i < inputs.size(); ++i) {
       auto vi = inputs[i];
+      // Remember variables that should not be cleared during forward
+      if (func->need_grad() && check_grad_depends_data<true>(func, i)) {
+        need_grad_variable_set_.insert(vi);
+      }
+      if (func->need_grad() &&
+          func->function()->overwrite_input_data_in_forward(i)) {
+        overwrite_variable_set_.insert(vi);
+      }
+      if (func->function()->inplace_data(i)) {
+        // Inplaced variable shouldn't be cleared during forward
+        const auto inplaced_output_idx = func->function()->inplace_data_with(i);
+        inplace_variable_set_.insert(vi);
+        inplace_variable_set_.insert(func->outputs()[inplaced_output_idx]);
+      }
+
       // This comes first because check_last_visit must be called in order to
       // increment the visit count of vi.
       if (!check_last_visit(vi)) {
@@ -124,11 +209,28 @@ public:
           func->function()->inplace_data(i) || vi->prohibit_clear_data()) {
         continue;
       }
+      if (inplace_variable_set_.find(vi) != inplace_variable_set_.end()) {
+        continue;
+      }
       if (clear_buffer_) {
         ret[i] = true;
         continue;
       }
-      if (clear_no_need_grad_ && !func->need_grad()) {
+      // Skip data clear during recomputation.
+      // Data which will be recomputed must be cleared only during forwad
+      // propagation.
+      if (!as_recomputation_ && vi->recompute()) {
+        ret[i] = true;
+        continue;
+      }
+
+      if (clear_no_need_grad_) {
+        if (need_grad_variable_set_.find(vi) != need_grad_variable_set_.end()) {
+          continue;
+        }
+        if (overwrite_variable_set_.find(vi) != overwrite_variable_set_.end()) {
+          continue;
+        }
         ret[i] = true;
         continue;
       }
@@ -140,7 +242,7 @@ public:
                     const vector<bool> &clear_flags) {
     // std::cout << "Clear flags: " << string_join(clear_flags, ",") <<
     // std::endl;
-    for (int i = 0; i < inputs.size(); i++) {
+    for (vector<CgVariablePtr>::size_type i = 0; i < inputs.size(); i++) {
       if (clear_flags[i]) {
         inputs[i]->variable()->data()->array()->clear();
       }
@@ -179,9 +281,9 @@ public:
 #endif
   }
 
-  void error_trace(const string &name_on_error) {
+  void error_trace(const string &message, const string &name_on_error) {
     // TODO: Optional verbosity
-    std::cerr << "Error during forward propagation:" << std::endl;
+    std::cerr << message << std::endl;
     for (auto &name : history_) {
       std::cerr << "  " << name << std::endl;
     }
@@ -197,18 +299,62 @@ public:
     vector<CgVariablePtr> outputs; // Get shared reference of outputs.
     vector<Variable *> voutputs;
     std::tie(outputs, voutputs) = func->function_outputs();
-    try {
-      auto call_callback = [func](function_hook_type &h) {
-        if (h) {
-          h(func);
+
+    bool need_setup_recompute = false;
+    const int n_outputs = outputs.size();
+    for (int i = 0; i < n_outputs; i++) {
+      if (outputs[i]->recompute() &&
+          func->function()->need_setup_recompute(i)) {
+        need_setup_recompute = true;
+      }
+    }
+
+    if (as_recomputation_) {
+      try {
+        func->function()->recompute(func->function_inputs(), voutputs);
+      } catch (...) {
+        error_trace("Error during recomputation:", func->function()->name());
+        throw;
+      }
+    } else {
+      // Setup for recomputation before forward execution
+      if (need_setup_recompute) {
+        try {
+          func->function()->setup_recompute(func->function_inputs(), voutputs);
+        } catch (...) {
+          error_trace(
+              "Error setup for recomputation during forward propagation:",
+              func->function()->name());
+          throw;
         }
-      };
-      call_callback(function_pre_hook_);
-      func->function()->forward(func->function_inputs(), voutputs);
-      call_callback(function_post_hook_);
-    } catch (...) {
-      error_trace(func->function()->name());
-      throw;
+      }
+
+      // Forward
+      try {
+        auto call_callback = [func](function_hook_type &h) {
+          if (h) {
+            h(func);
+          }
+        };
+
+        // Call global pre_hooks first.
+        SingletonManager::get<GlobalFunctionCallback>()->call_pre_hooks(func);
+
+        // Call a pre_hook specified by user.
+        call_callback(function_pre_hook_);
+
+        func->function()->forward(func->function_inputs(), voutputs);
+
+        // Call a post_hook specified by user.
+        call_callback(function_post_hook_);
+
+        // Call global post_hooks last.
+        SingletonManager::get<GlobalFunctionCallback>()->call_post_hooks(func);
+      } catch (...) {
+        error_trace("Error during forward propagation:",
+                    func->function()->name());
+        throw;
+      }
     }
     history_.push_back(func->function()->name());
 
@@ -217,21 +363,40 @@ public:
     // Clear input buffers where possible.
     auto clear_flags = get_clear_flags(func);
     clear_inputs(func->inputs(), clear_flags);
+
+    // Record when inputs and outputs are cleared.
+    // It is possible to move clear_inputs above function_post_hook and record
+    // "clear" by using it. However, this change breaks backward compatibility.
+    if (SingletonManager::get<ClearCalledFlagRecorder>()->is_activated()) {
+      SingletonManager::get<ClearCalledFlagRecorder>()->record(func);
+    }
   }
 };
 
 class BackwardCallback {
+  class ClearFlag {
+  public:
+    ClearFlag(bool data, bool grad) : data_(data), grad_(grad) {}
+    bool data_;
+    bool grad_;
+  };
+
   bool clear_buffer_;
+  const bool clear_initial_grad_;
   function_hook_type function_pre_hook_;
   function_hook_type function_post_hook_;
   // Visit CgVaiable list. The value is whether this is cleared during backward.
-  unordered_map<CgVariablePtr, bool> vseen_;
+  unordered_map<CgVariablePtr, ClearFlag> vseen_;
+
+  // "initial_variable_set_" holds the output variables of the function firstly
+  // visited after calling BackwardCallback from CgVariable::backward.
+  unordered_set<CgVariablePtr> initial_variable_set_;
   vector<string> history_;
 
   vector<bool> get_accum(const vector<CgVariablePtr> &inputs,
                          const vector<bool> &first_visit_flags) {
     vector<bool> accum(inputs.size(), false);
-    for (int i = 0; i < inputs.size(); i++) {
+    for (vector<CgVariablePtr>::size_type i = 0; i < inputs.size(); i++) {
       // No need grad.
       if (!inputs[i]->need_grad_state())
         continue;
@@ -241,7 +406,7 @@ class BackwardCallback {
       auto array = inputs[i]->variable()->grad()->array();
       if (array->zeroing()) {
         bool input_shared = false;
-        for (int j = 0; j < inputs.size(); j++) {
+        for (vector<CgVariablePtr>::size_type j = 0; j < inputs.size(); j++) {
           if (i == j) {
             continue;
           }
@@ -265,8 +430,13 @@ class BackwardCallback {
 
   void force_zero_grad_if_unseen(vector<CgVariablePtr> outputs,
                                  const vector<bool> &first_visit) {
-    for (int i = 0; i < outputs.size(); i++) {
+    for (vector<CgVariablePtr>::size_type i = 0; i < outputs.size(); i++) {
       auto o = outputs[i];
+
+      if (initial_variable_set_.find(o) != initial_variable_set_.end()) {
+        continue;
+      }
+
       if (first_visit[i]) {
         // The output variable has not been seen during this backprop, which
         // means no one sets the gradient previously. To prevent to propagate
@@ -278,31 +448,14 @@ class BackwardCallback {
     }
   }
 
-  void clear_output_buffers(CgFunctionPtr func,
-                            const vector<bool> &prohibit_clear) {
-    if (clear_buffer_) {
-      auto f = func->function();
-      auto inputs = func->inputs();
-      auto outputs = func->outputs();
-      vector<pair<bool, bool>> clear(outputs.size(), {true, true});
-      for (int i = 0; i < inputs.size(); i++) {
-        if (f->inplace_data(i)) {
-          clear[f->inplace_data_with(i)].first = false;
-        }
-        if (f->inplace_grad(i)) {
-          clear[f->inplace_grad_with(i)].second = false;
-        }
+  void clear_outputs(const vector<CgVariablePtr> &outputs,
+                     const vector<ClearFlag> &output_clear_flags) {
+    for (vector<CgVariablePtr>::size_type o = 0; o < outputs.size(); ++o) {
+      if (output_clear_flags[o].data_) {
+        outputs[o]->variable()->data()->array()->clear();
       }
-      for (int o = 0; o < outputs.size(); ++o) {
-        if (prohibit_clear[o] || outputs[o]->persistent()) {
-          continue;
-        }
-        if (clear[o].first) {
-          outputs[o]->variable()->data()->array()->clear();
-        }
-        if (clear[o].second) {
-          outputs[o]->variable()->grad()->array()->clear();
-        }
+      if (output_clear_flags[o].grad_) {
+        outputs[o]->variable()->grad()->array()->clear();
       }
     }
   }
@@ -310,31 +463,54 @@ class BackwardCallback {
   // Get first visit flags and prohibit clear flags;
   // The prohibit clear flags are set by query_input_flags function with inputs
   // of a previously called function.
-  pair<vector<bool>, vector<bool>>
-  query_outputs_flags(const vector<CgVariablePtr> &outputs) {
+  pair<vector<bool>, vector<ClearFlag>>
+  query_outputs_flags(const CgFunctionPtr func) {
+    auto f = func->function();
+    auto inputs = func->inputs();
+    auto outputs = func->outputs();
+
     vector<bool> first_visit(outputs.size());
-    vector<bool> prohibit_clear(outputs.size());
-    for (int i = 0; i < outputs.size(); i++) {
+    vector<ClearFlag> output_clear_flags(outputs.size(), {true, true});
+    for (vector<CgVariablePtr>::size_type i = 0; i < outputs.size(); i++) {
       auto v = outputs[i];
       auto it = vseen_.find(v);
       bool first = it == vseen_.end();
       if (first) { // first visit
-        // Terminal variable always doesn't allow to clear buffers.
-        prohibit_clear[i] = true;
+        // Terminal variable always doesn't allow to clear buffers
+        // except a temporary initial gradient auto-generated by NNabla.
+        output_clear_flags[i] = {false, clear_initial_grad_};
 
         // Note that the following vseen_[v] won't be referred in the current
         // implementation because query_input_flags is called earlier than
         // query_output_flags. TODO: We may be able to call query_output_flags
         // before query_input_flags.
-        vseen_[v] = true;
+        vseen_.insert({v, ClearFlag(false, clear_initial_grad_)});
       } else {
         // Propagate prohibit_clear_inputs_buffers flag from the previous seen
-        // inputs.
-        prohibit_clear[i] = it->second;
+        // inputs data.
+        output_clear_flags[i] = it->second;
       }
+
+      if (v->persistent()) {
+        output_clear_flags[i] = ClearFlag(false, false);
+        vseen_.insert({v, ClearFlag(false, false)});
+      }
+
       first_visit[i] = first;
     }
-    return {first_visit, prohibit_clear};
+
+    if (!clear_buffer_) {
+      output_clear_flags.assign(outputs.size(), {false, false});
+    } else {
+      // Prohibit clear of in-placed outputs.
+      for (vector<CgVariablePtr>::size_type i = 0; i < inputs.size(); i++) {
+        if (f->inplace_data(i)) {
+          output_clear_flags[f->inplace_data_with(i)].data_ = false;
+        }
+      }
+    }
+
+    return {first_visit, output_clear_flags};
   }
 
   vector<bool> query_input_flags(const vector<CgVariablePtr> &inputs,
@@ -342,33 +518,32 @@ class BackwardCallback {
     vector<bool> ret(inputs.size());
     bool prohibit_clear = func->function()->prohibit_clear_input_buffers();
     auto outputs = func->outputs();
-    for (int i = 0; i < ret.size(); i++) {
+    for (vector<bool>::size_type i = 0; i < ret.size(); i++) {
       auto v = inputs[i];
       auto it = vseen_.find(v);
-      bool first_visit = it == vseen_.end();
+      bool first_visit = (it == vseen_.end());
       ret[i] = first_visit;
       if (first_visit) {
         bool dummy;
-        std::tie(it, dummy) = vseen_.insert({v, prohibit_clear});
+        std::tie(it, dummy) =
+            vseen_.insert({v, ClearFlag(!prohibit_clear, !prohibit_clear)});
       }
+
+      auto &clear_flag = it->second;
 
       // Prohibits clearing if any of previous function prohibits clearing
       // inputs.
-      it->second |= prohibit_clear;
+      clear_flag.data_ &= !prohibit_clear;
+      clear_flag.grad_ &= !prohibit_clear;
 
       // Propagate prohibit property from the output variables.
       if (func->function()->inplace_data(i)) {
         auto inplaced = outputs[func->function()->inplace_data_with(i)];
         auto it2 = vseen_.find(inplaced);
-        if (it2 == vseen_.end() || it2->second) {
-          it->second = true;
-        }
-      }
-      if (func->function()->inplace_grad(i)) {
-        auto inplaced = outputs[func->function()->inplace_grad_with(i)];
-        auto it2 = vseen_.find(inplaced);
-        if (it2 == vseen_.end() || it2->second) {
-          it->second = true;
+        const auto &clear_flag2 = it2->second;
+        if (it2 == vseen_.end() || !clear_flag2.data_ ||
+            inplaced->persistent()) {
+          clear_flag.data_ = false;
         }
       }
     }
@@ -378,17 +553,18 @@ class BackwardCallback {
 public:
   BackwardCallback(CgFunctionPtr f, bool clear_buffer,
                    function_hook_type function_pre_hook,
-                   function_hook_type function_post_hook)
-      : clear_buffer_(clear_buffer), function_pre_hook_(function_pre_hook),
+                   function_hook_type function_post_hook,
+                   const bool clear_initial_grad)
+      : clear_buffer_(clear_buffer), clear_initial_grad_(clear_initial_grad),
+        function_pre_hook_(function_pre_hook),
         function_post_hook_(function_post_hook) {
     // Note prohibiting clearing variable buffers where terminal.
     for (auto o : f->outputs()) {
-      vseen_.insert({o, true});
+      initial_variable_set_.insert(o);
     }
   }
 
   void error_trace(const string &name_on_error) {
-    // TODO: Optional verbosity
     std::cerr << "Error during backward propagation:" << std::endl;
     for (auto &name : history_) {
       std::cerr << "  " << name << std::endl;
@@ -409,9 +585,9 @@ public:
 
     // Query output flags according to previous trace history.
     vector<bool> output_first_visit_flags;
-    vector<bool> output_prohibit_clear;
-    std::tie(output_first_visit_flags, output_prohibit_clear) =
-        query_outputs_flags(outputs);
+    vector<ClearFlag> output_clear_flags;
+    std::tie(output_first_visit_flags, output_clear_flags) =
+        query_outputs_flags(f);
 
     // Check if any of outputs is unseen.
     force_zero_grad_if_unseen(outputs, output_first_visit_flags);
@@ -429,9 +605,21 @@ public:
           h(f);
         }
       };
+
+      // Call global pre_hooks first.
+      SingletonManager::get<GlobalFunctionCallback>()->call_pre_hooks(f);
+
+      // Call a pre_hook specified by user.
       call_callback(function_pre_hook_);
+
       f->function()->backward(f->function_inputs(), voutputs, prop_down, accum);
+
+      // Call a post_hook specified by user.
       call_callback(function_post_hook_);
+
+      // Call global post_hooks last.
+      SingletonManager::get<GlobalFunctionCallback>()->call_post_hooks(f);
+
     } catch (...) {
       error_trace(f->function()->name());
       throw;
@@ -439,12 +627,19 @@ public:
     history_.push_back(f->function()->name());
 
     // Clear outputs buffer
-    clear_output_buffers(f, output_prohibit_clear);
+    clear_outputs(outputs, output_clear_flags);
+
+    // Record when inputs and outputs are cleared.
+    // See the comment on ForwardCallback::operator().
+    if (SingletonManager::get<ClearCalledFlagRecorder>()->is_activated()) {
+      SingletonManager::get<ClearCalledFlagRecorder>()->record(f);
+    }
   }
 };
 
 void CgVariable::visit_function_recursive(
     CgFunctionPtr func, unordered_set<CgFunctionPtr> &fclosed,
+    const bool as_recomputation,
     std::function<void(CgFunctionPtr)> forward_callback) {
 
   // A. Push the function to the closed list.
@@ -459,6 +654,11 @@ void CgVariable::visit_function_recursive(
     auto parent = input->parent();
     // B-1. Input with no parent doesn't require
     if (!parent) {
+      if (as_recomputation) {
+        // No need to care about `need_grad`, `rank` or `need_setup` during
+        // recomputation.
+        continue;
+      }
       // Same as B-3.
       input->set_rank_(0);
       input->unset_need_grad_state();
@@ -471,7 +671,25 @@ void CgVariable::visit_function_recursive(
 
     // B-2. Visit functions recursively if parent is not closed.
     if (fclosed.find(parent) == fclosed.end()) {
-      visit_function_recursive(parent, fclosed, forward_callback);
+      if (as_recomputation) {
+        // Data recomputation is performed during backward propagation.
+        // Only cleared data is a recomputation target.
+        const bool cleared = input->variable()->data()->array()->clear_called();
+        if (cleared) {
+          visit_function_recursive(parent, fclosed, as_recomputation,
+                                   forward_callback);
+        }
+      } else {
+        visit_function_recursive(parent, fclosed, as_recomputation,
+                                 forward_callback);
+      }
+    }
+
+    if (as_recomputation) {
+      // Skip B-3 and B-4.
+      // No need to care about `need_grad`, `rank` or `need_setup` during
+      // recomputation.
+      continue;
     }
 
     // B-3. Update rank and need_grad of this input by propagating from the
@@ -483,6 +701,14 @@ void CgVariable::visit_function_recursive(
     max_rank = std::max(parent->rank(), max_rank);
     need_grad |= input->need_grad_state();
     need_setup |= input->check_and_unmark_need_setup(func);
+  }
+
+  if (as_recomputation) {
+    forward_callback(func);
+    // Skip C. to F.
+    // No need to update `need_grad`, `rank` or `need_setup` during
+    // recomputation.
+    return;
   }
 
   // C. Update rank and need_grad of func (backward with a rewired graph
@@ -530,6 +756,13 @@ void CgVariable::visit_function_backward(
   };
   set<tuple<int, uint64_t, CgFunctionPtr>> open;
   open.insert(make_tuple(-p->rank(), get_id(p), p));
+
+  // For forward recomputation
+  ForwardCallback forward_callback(
+      false /* clear_buffer */, true /* clear_no_need_grad */,
+      true /* as_recomputation */, nullptr, nullptr);
+  unordered_set<CgFunctionPtr> fclosed;
+
   while (!open.empty()) {
     auto rank_func = open.begin();
     auto f = get<2>(*rank_func);
@@ -538,6 +771,46 @@ void CgVariable::visit_function_backward(
     // std::cout << " --> " << open.size() << std::endl;
     if (!f->need_grad())
       continue;
+
+    // Recompute cleared inputs' data
+    fclosed.clear();
+    const int n_inputs = f->num_inputs();
+    const auto function = f->function();
+    const auto inputs = f->inputs();
+    for (int i = 0; i < n_inputs; i++) {
+      // Recompute i-th input data
+
+      // Whether a parent exists
+      const auto parent = inputs[i]->parent();
+      if (!parent)
+        continue;
+
+      // Whether i-th input data is cleared
+      if (!(inputs[i]->recompute() &&
+            inputs[i]->variable()->data()->array()->clear_called()))
+        continue;
+
+      // Whether i-th input data is needed for grad calculation
+      bool need_for_grad = false;
+      for (int j = 0; j < n_inputs; j++) {
+        // Whether j-th grad computation is needed
+        if (!inputs[j]->need_grad_state())
+          continue;
+
+        // Whether i-th input data is needed for j-th grad computation
+        if (!function->grad_depends_input_data(j, i))
+          continue;
+
+        need_for_grad = true;
+      }
+      if (!need_for_grad)
+        continue;
+
+      // Exec recomputation for i-th input data
+      visit_function_recursive(
+          parent, fclosed, true /* as_recomputation */,
+          [&forward_callback](CgFunctionPtr f) { forward_callback(f); });
+    }
 
     // Callback
     backward_callback(f);
@@ -552,8 +825,7 @@ void CgVariable::visit_function_backward(
     }
 
     // Propagate down.
-    auto inputs = f->inputs();
-    for (int i = 0; i < f->num_inputs(); i++) {
+    for (size_t i = 0; i < f->num_inputs(); i++) {
       auto inp = inputs[i];
       if (!inp->need_grad_state())
         continue;
@@ -582,35 +854,64 @@ void CgVariable::forward(bool clear_buffer, bool clear_no_need_grad,
   }
   NBLA_CHECK(parent_, error_code::value, "The variable has no parent.");
   ForwardCallback forward_callback(clear_buffer, clear_no_need_grad,
-                                   function_pre_hook, function_post_hook);
+                                   false /* as_recompute */, function_pre_hook,
+                                   function_post_hook);
   visit_function_recursive(
-      parent_, *fclosed,
+      parent_, *fclosed, false /* recomputation */,
       [&forward_callback](CgFunctionPtr f) { forward_callback(f); });
 }
 
 void CgVariable::backward(
     NdArrayPtr grad, bool clear_buffer,
     vector<CommunicatorBackwardCallbackPtr> communicator_callbacks,
-    function_hook_type function_pre_hook,
-    function_hook_type function_post_hook) {
+    function_hook_type function_pre_hook, function_hook_type function_post_hook,
+    const bool clear_initial_grad) {
   NBLA_CHECK(parent_, error_code::value, "The variable has no parent.");
   auto clear_buffer_state =
       SingletonManager::get<GlobalClearBufferState>()->state(clear_buffer,
                                                              false);
 
+  // Initial gradient, "grad", can be cleared if it is a just temporary buffer
+  // for each backprop. This technique cannot be applied when grad == nullptr
+  // because users can give an initial gradient via another way;
+  // Variable::set_grad(). The activate_clear_initial_grad distinguish
+  // only the case where "grad" is set.
+  bool activate_clear_initial_grad = false;
+
   // Scoped context.
   // Set flags used during backward of this variable to avoid clearing
   // buffer. Also, set the grad array passed as an argument.
-  NdArrayPtr bak_grad = this->variable()->grad();
-  DestructorCallback at_scope_exit(
-      [&]() { this->variable()->set_grad(bak_grad); });
-  if (grad) {
-    this->variable()->set_grad(grad);
+  std::vector<NdArrayPtr> bak_grads;
+  std::vector<NdArrayPtr> dummy_zero_grads;
+  for (auto var : parent_->outputs()) {
+    bak_grads.push_back(var->variable()->grad());
+    NdArrayPtr dummpy_grad = NdArray::create(var->variable()->shape());
+    dummpy_grad->zero();
+    dummy_zero_grads.push_back(dummpy_grad);
+  }
+
+  DestructorCallback at_scope_exit([&]() {
+    for (std::size_t i = 0; i < parent_->outputs().size(); i++) {
+      parent_->outputs()[i]->variable()->set_grad(bak_grads[i]);
+    }
+  });
+
+  for (std::size_t i = 0; i < parent_->outputs().size(); i++) {
+    auto var = parent_->outputs()[i];
+    if (var.get() == this) {
+      if (grad) {
+        this->variable()->set_grad(grad);
+        activate_clear_initial_grad = clear_initial_grad;
+      }
+    } else {
+      var->variable()->set_grad(dummy_zero_grads[i]);
+    }
   }
 
   // Create callback
   BackwardCallback backward_callback(parent_, clear_buffer, function_pre_hook,
-                                     function_post_hook);
+                                     function_post_hook,
+                                     activate_clear_initial_grad);
 
   // Visit backward
   visit_function_backward(
@@ -619,18 +920,27 @@ void CgVariable::backward(
 }
 
 vector<CgFunctionPtr> CgVariable::function_references() {
-  vector<CgFunctionPtr> ret(this->function_reference_count(), nullptr);
-  int i = 0;
+  vector<CgFunctionPtr> ret;
   for (auto pair : function_references_) {
     if (auto shared = pair.second.first.lock())
-      ret[i++] = shared;
+      ret.push_back(shared);
   }
 
   return ret;
 }
 
+size_t CgVariable::function_reference_count() const {
+  return function_reference_count_;
+}
+
 void CgVariable::insert_function_reference(CgFunctionPtr func) {
   std::weak_ptr<CgFunction> wp(func);
+  function_reference_count_++;
+  auto it = function_references_.find(func.get());
+  if (it != function_references_.end()) {
+    it->second.second.count++;
+    return;
+  }
   function_references_.insert(
       {func.get(), {wp, CgVariable::FunctionReferenceInfo()}});
 }
@@ -639,6 +949,7 @@ void CgVariable::remove_function_reference(CgFunction *funcp) {
   auto it = function_references_.find(funcp);
   if (it == function_references_.end())
     return;
+  function_reference_count_ -= it->second.second.count;
   function_references_.erase(it);
 }
 
@@ -680,5 +991,75 @@ CgVariablePtr CgVariable::create_deep_copy(Context ctx, bool copy_grad) {
   }
 
   return ret;
+}
+
+ClearCalledFlagRecorder::ClearCalledFlagRecorder() {}
+
+ClearCalledFlagRecorder::~ClearCalledFlagRecorder() {}
+
+bool ClearCalledFlagRecorder::is_activated() { return is_activated_; }
+
+void ClearCalledFlagRecorder::activate() { is_activated_ = true; }
+
+void ClearCalledFlagRecorder::deactivate() {
+  is_activated_ = false;
+  recorded_input_clear_flags_.clear();
+  recorded_output_clear_flags_.clear();
+}
+
+std::vector<std::pair<bool, bool>>
+ClearCalledFlagRecorder::get_variable_clear_called_flag(
+    const std::vector<CgVariablePtr> &vars) {
+  std::vector<std::pair<bool, bool>> clear_called_flags;
+
+  for (const auto var : vars) {
+    bool data_flag = var->variable()->data()->array()->clear_called();
+    bool grad_flag = var->variable()->grad()->array()->clear_called();
+    clear_called_flags.push_back(std::make_pair(data_flag, grad_flag));
+  }
+
+  return clear_called_flags;
+}
+
+void ClearCalledFlagRecorder::record(const CgFunctionPtr func) {
+  if (!is_activated()) {
+    NBLA_ERROR(error_code::runtime, "Activate recorder before record.");
+  }
+
+  recorded_input_clear_flags_.push_back(
+      get_variable_clear_called_flag(func->inputs()));
+  recorded_output_clear_flags_.push_back(
+      get_variable_clear_called_flag(func->outputs()));
+}
+
+std::vector<std::vector<std::pair<bool, bool>>>
+ClearCalledFlagRecorder::get_recorded_input_clear_flags() const {
+  return recorded_input_clear_flags_;
+}
+
+std::vector<std::vector<std::pair<bool, bool>>>
+ClearCalledFlagRecorder::get_recorded_output_clear_flags() const {
+  return recorded_output_clear_flags_;
+}
+
+// Pasing empty arguments because this class is not defined by NBLA_API.
+NBLA_INSTANTIATE_SINGLETON(, ClearCalledFlagRecorder);
+
+void c_activate_clear_called_flag_recorder() {
+  SingletonManager::get<ClearCalledFlagRecorder>()->activate();
+}
+
+void c_deactivate_clear_called_flag_recorder() {
+  SingletonManager::get<ClearCalledFlagRecorder>()->deactivate();
+}
+
+vector<vector<pair<bool, bool>>> c_get_input_clear_called_flags() {
+  return SingletonManager::get<ClearCalledFlagRecorder>()
+      ->get_recorded_input_clear_flags();
+}
+
+vector<vector<pair<bool, bool>>> c_get_output_clear_called_flags() {
+  return SingletonManager::get<ClearCalledFlagRecorder>()
+      ->get_recorded_output_clear_flags();
 }
 }

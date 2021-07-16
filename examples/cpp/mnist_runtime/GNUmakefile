@@ -1,4 +1,4 @@
-# Copyright (c) 2019 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,10 +13,10 @@
 # limitations under the License.
 
 all: mnist_runtime.cpp
-	$(CXX) -std=c++11 -D TIMING -O -o mnist_runtime mnist_runtime.cpp -lnnabla -lnbla_utils
+	$(CXX) -std=c++11 -D TIMING -O -o mnist_runtime mnist_runtime.cpp -lnnabla -lnnabla_utils
 
 cuda: mnist_runtime.cpp
-	$(CXX) -std=c++11 -D TIMING -D WITH_CUDA -O -o mnist_runtime_cuda mnist_runtime.cpp -lnnabla -lnbla_utils -lnnabla_cuda
+	$(CXX) -std=c++11 -D TIMING -D WITH_CUDA -O -o mnist_runtime_cuda mnist_runtime.cpp -lnnabla -lnnabla_utils -lnnabla_cuda$(CUDA_VERSION_SUFFIX)
 
 clean:
 	rm -f mnist_runtime

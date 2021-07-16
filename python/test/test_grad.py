@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,26 +18,29 @@ import numpy as np
 import nnabla as nn
 import nnabla.functions as F
 import nnabla.parametric_functions as PF
+import nnabla.initializer as I
 from nnabla.ext_utils import get_extension_context
 from nbla_test_utils import list_context
 from nnabla.testing import assert_allclose
+from nnabla.function import PythonFunction
+from nnabla.backward_functions import registry, register
 
 # Proxy to get the appropriate context
 ctx_list = [ctx_fname[0] for ctx_fname in list_context('Convolution')]
 
 
-def SmallResNet(x, test=False, shared=False):
+def SmallResNet(x, test=False, act=F.relu, inplace=False, shared=False):
     h = x
 
     def conv(x, maps=8, name="conv"):
         h = x
         with nn.parameter_scope(name):
-            h = PF.convolution(h, maps, (3, 3), (1, 1), with_bias=False)
+            h = PF.convolution(h, maps, (3, 3), (1, 1), with_bias=True)
             h = PF.batch_normalization(h, batch_stat=not test)
         with nn.parameter_scope("{}-shortcut".format(name)):
             s = PF.convolution(h, maps, (3, 3), (1, 1), with_bias=False)
             h = PF.batch_normalization(h, batch_stat=not test)
-        return F.relu(h + s)
+        return act(h + s, inplace) if act in (F.relu, F.leaky_relu) else act(h + s)
     h = conv(h, maps=4, name="conv1")
     h = F.max_pooling(h, (2, 2))
     h = conv(h, maps=4, name="conv2")
@@ -51,8 +55,11 @@ def SmallResNet(x, test=False, shared=False):
 @pytest.mark.parametrize("ctx", ctx_list)
 @pytest.mark.parametrize("auto_forward", [True, False])
 @pytest.mark.parametrize("flag_grad_outputs", [True, False])
+@pytest.mark.parametrize("act, inplace", [(F.relu, True), (F.relu, False),
+                                          (F.leaky_relu, True), (F.leaky_relu, False),
+                                          (F.sin, False)])
 @pytest.mark.parametrize("shared", [False, True])
-def test_resnet_expansion(seed, ctx, auto_forward, flag_grad_outputs, shared):
+def test_grad_resnet(seed, ctx, auto_forward, flag_grad_outputs, act, inplace, shared):
     nn.clear_parameters()
 
     # Settings
@@ -65,7 +72,7 @@ def test_resnet_expansion(seed, ctx, auto_forward, flag_grad_outputs, shared):
     # Network
     x = nn.Variable.from_numpy_array(rng.randn(b, c, h, w))
     y = nn.Variable.from_numpy_array(rng.randint(0, n_cls, b).reshape(b, 1))
-    p = SmallResNet(x, shared=shared)
+    p = SmallResNet(x, act=act, inplace=inplace, shared=shared)
     loss = F.mean(F.softmax_cross_entropy(p, y))
 
     # Zerograd, Forward, Backward on the forward graph
@@ -90,6 +97,42 @@ def test_resnet_expansion(seed, ctx, auto_forward, flag_grad_outputs, shared):
     for inp, grad in zip(inputs, grads):
         assert_allclose(
             inp.g, grad.d, atol=1e-6)
+
+
+@pytest.mark.parametrize("seed", [311])
+@pytest.mark.parametrize("ctx", ctx_list)
+@pytest.mark.parametrize("auto_forward", [True, False])
+@pytest.mark.parametrize("inplace", [False, True])
+@pytest.mark.parametrize("shared", [False, True])
+def test_grad_grad_resnet(seed, ctx, auto_forward, inplace, shared):
+    nn.clear_parameters()
+
+    # Settings
+    nn.set_default_context(ctx)
+    nn.set_auto_forward(auto_forward)
+    b, c, h, w = 4, 3, 32, 32
+    n_cls = 10
+    rng = np.random.RandomState(seed)
+
+    # Network
+    x = nn.Variable.from_numpy_array(
+        rng.randn(b, c, h, w)).apply(need_grad=True)
+    y = SmallResNet(x, inplace=inplace, shared=shared)
+
+    # Grad of grad
+    dx = nn.grad([y], [x])
+    ddx = nn.grad([dx[0]], [x])
+    ddx[0].forward() if not auto_forward else None
+    # Backward of grad
+    x.grad.zero()
+    dx[0].forward() if not auto_forward else None
+    dx[0].backward()
+
+    # Check between results of var.backward and nn.grad
+    backend = ctx.backend[0].split(":")[0]
+    if backend == 'cuda':
+        pytest.skip('CUDA Convolution N-D is only supported in CUDNN extension')
+    assert_allclose(x.g, ddx[0].d, atol=1e-6)
 
 
 @pytest.mark.parametrize("seed", [311])
@@ -239,3 +282,117 @@ def test_shared_leaf_variable_basic_arithmetics(seed, ctx, auto_forward):
         # Second-order gradient
         dy_dx[0].backward()
         assert_allclose(x.g, math_type(xd, 2))
+
+
+# TODO: this is an ad-hoc test
+@pytest.mark.parametrize("ctx", ctx_list)
+def test_compute_simple_hessian(ctx):
+    nn.clear_parameters()
+
+    # Network
+    state = nn.Variable((1, 2))
+    output = PF.affine(state, 1,
+                       w_init=I.ConstantInitializer(value=1.),
+                       b_init=I.ConstantInitializer(value=1.))
+    loss = F.sum(output**2)
+    # Input
+    state_array = np.array([[1.0, 0.5]])
+    state.d = state_array
+
+    # Grad of network
+    params = nn.get_parameters().values()
+    for param in params:
+        param.grad.zero()
+    grads = nn.grad([loss], params)
+    flat_grads = F.concatenate(*[F.reshape(grad, (-1,)) for grad in grads]) if len(grads) > 1 \
+        else F.reshape(grads[0], (-1,))
+
+    # Compute hessian
+    hessian = np.zeros(
+        (flat_grads.shape[0], flat_grads.shape[0]), dtype=np.float32)
+    for i in range(flat_grads.shape[0]):
+        flat_grads_i = flat_grads[i]
+        flat_grads_i.forward()
+        for param in params:
+            param.grad.zero()
+        flat_grads_i.backward()
+        num_index = 0
+        for param in params:
+            grad = param.g.flatten()  # grad of grad so this is hessian
+            hessian[i, num_index:num_index+len(grad)] = grad
+            num_index += len(grad)
+
+    actual = hessian
+    expected = np.array(
+        [[2*state_array[0, 0]**2,
+          2*state_array[0, 0]*state_array[0, 1],
+          2*state_array[0, 0]],
+         [2*state_array[0, 0]*state_array[0, 1],
+          2*state_array[0, 1]**2,
+          2*state_array[0, 1]],
+         [2*state_array[0, 0],
+          2*state_array[0, 1],
+          2.]]
+          )
+    assert_allclose(actual, expected)
+
+
+class IdentityForwardOnlyFunction(PythonFunction):
+    @property
+    def name(self):
+        return self.__class__.__name__
+
+    def min_outputs(self):
+        return 1
+
+    def grad_depends_output_data(self, i, o):
+        return False
+
+    def grad_depends_input_data(self, i, j):
+        return False
+
+    def setup_impl(self, inputs, outputs):
+        i0 = inputs[0]
+        o0 = outputs[0]
+        o0.reset_shape(i0.shape, True)
+
+    def forward_impl(self, inputs, outputs):
+        x = inputs[0].data
+        y = outputs[0].data
+        y.copy_from(x)
+
+    def backward_impl(self, inputs, outputs, propagate_down, accum):
+        pass
+
+
+def IdentityForwardOnlyFunction_backward(inputs):
+    raise NotImplementedError(
+        "PassForwardOnlyFunction_backward is not implemented.\nThe expected behavior is that this function will not be called.")
+
+# This tests a previously existing bug where a "Propagate down" check in Grad.__call__
+
+
+def test_nn_grad_propagate_down_check():
+    register("IdentityForwardOnlyFunction",
+             IdentityForwardOnlyFunction_backward)
+    backward_func = registry["IdentityForwardOnlyFunction"]
+    assert backward_func is not None
+
+    x = nn.Variable.from_numpy_array(np.random.random((1, 1, 32, 32)))
+    y = PF.convolution(x, 1, kernel=(3, 3), pad=(1, 1), with_bias=False)
+    z = IdentityForwardOnlyFunction()(y)
+    w = F.identity(z)
+
+    # If IdentityForwardOnlyFunction_backward is called in nn.grad, an error will occur.
+    v = nn.grad(w, [z])
+    v[0].forward()
+
+
+def test_double_backward_floating_variables():
+    x = nn.Variable((2, 2), need_grad=True)
+    y = nn.Variable((2, 3), need_grad=True)
+    z = nn.Variable((2, 4), need_grad=True)
+    w = F.concatenate(*[x, y, z], axis=-1)
+    o = F.sin(w)
+    dx = nn.grad([o], [x])[0]
+    ddx = nn.grad([dx], [x])[0]  # Error must not happen

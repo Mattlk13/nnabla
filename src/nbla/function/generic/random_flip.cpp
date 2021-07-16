@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +17,7 @@
  */
 #include <nbla/array.hpp>
 #include <nbla/function/random_flip.hpp>
+#include <nbla/random_manager.hpp>
 #include <nbla/variable.hpp>
 
 #include <algorithm>
@@ -46,7 +48,7 @@ void RandomFlip<T>::flip_recursive(const Variable *inp, const T *x, T *y,
     current_x_offset += x_stride * (size - 1);
     x_stride = -x_stride;
   }
-  if (dim == inp->shape().size() - 1) {
+  if (static_cast<Shape_t::size_type>(dim) == inp->shape().size() - 1) {
     const T *current_x = x + current_x_offset;
     const T *end_x = current_x + size * x_stride;
     T *current_y = y + current_y_offset;
@@ -80,14 +82,21 @@ void RandomFlip<T>::flip_recursive(const Variable *inp, const T *x, T *y,
 }
 
 template <typename T>
-void RandomFlip<T>::forward_impl(const Variables &inputs,
-                                 const Variables &outputs) {
+void RandomFlip<T>::setup_recompute_impl(const Variables &inputs,
+                                         const Variables &outputs) {
+  save_rng_ = true;
+}
+
+template <typename T>
+void RandomFlip<T>::random_flip(const Variables &inputs,
+                                const Variables &outputs, std::mt19937 &rgen) {
   flip_.resize(size_);
+  auto input0_shape_size = inputs[0]->shape().size();
   for (int i = 0; i < size_; i++) {
-    flip_[i].resize(inputs[0]->shape().size());
-    for (int id = 0; id < inputs[0]->shape().size(); id++) {
+    flip_[i].resize(input0_shape_size);
+    for (int id = 0; static_cast<size_t>(id) < input0_shape_size; id++) {
       auto itr = std::find(axes_.begin(), axes_.end(), id);
-      flip_[i][id] = (rgen_() % 2) && (itr != axes_.end());
+      flip_[i][id] = (rgen() % 2) && (itr != axes_.end());
     }
   }
 
@@ -95,6 +104,27 @@ void RandomFlip<T>::forward_impl(const Variables &inputs,
   T *y = outputs[0]->cast_data_and_get_pointer<T>(this->ctx_, true);
   int flip_index = 0;
   flip_recursive(inputs[0], x, y, false, 0, 0, 0, flip_index);
+}
+
+template <typename T>
+void RandomFlip<T>::forward_impl(const Variables &inputs,
+                                 const Variables &outputs) {
+  std::mt19937 &rgen =
+      seed_ == -1 ? SingletonManager::get<RandomManager>()->get_rand_generator()
+                  : rgen_;
+  // Remember the random state for recomputation.
+  if (save_rng_) {
+    rgen_for_recompute_ = rgen;
+  }
+
+  random_flip(inputs, outputs, rgen);
+}
+
+template <typename T>
+void RandomFlip<T>::recompute_impl(const Variables &inputs,
+                                   const Variables &outputs) {
+  auto rgen = rgen_for_recompute_;
+  random_flip(inputs, outputs, rgen);
 }
 
 template <typename T>

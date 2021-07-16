@@ -29,7 +29,7 @@ from libc.stdint cimport int64_t, intptr_t
 cimport function
 from function cimport CFunction, Variables, CgFunction
 cimport _variable
-from _variable cimport Variable as _Variable, CVariable, CgVariable, CContext
+from _variable cimport Variable as _Variable, CVariable, CgVariable, CContext, Context
 from _nd_array cimport NdArray
 from _nd_array import NdArray
 from _imperative cimport *
@@ -41,7 +41,7 @@ cimport numpy as np
 np.import_array()
 # CPython
 from cpython cimport Py_INCREF, Py_DECREF
-
+from nnabla.core.graph_def import ProtoVariable, ProtoFunction
 
 class Info:
     '''
@@ -217,6 +217,24 @@ cdef class Function:
 	    prop_down,
             caccum)
 
+    def setup_recompute(self, inputs, outputs):
+        cdef int i
+        self.funp.function().get().setup_recompute(
+            list_to_vector_variable_p(inputs),
+            list_to_vector_variable_p(outputs))
+
+    def recompute(self, inputs, outputs):
+        cdef int i
+        self.funp.function().get().recompute(
+            list_to_vector_variable_p(inputs),
+            list_to_vector_variable_p(outputs))
+
+    @property
+    def context(self):
+        ccontext = self.funp.function().get().context()
+        ctx = Context(**ccontext)
+        return ctx
+
     @property
     def name(self):
         return self.funp.function().get().name()
@@ -227,17 +245,14 @@ cdef class Function:
     def grad_depends_output_data(self, int i, int o):
         return self.funp.function().get().grad_depends_output_data(i, o)
 
+    def need_setup_recompute(self, int o):
+        return self.funp.function().get().need_setup_recompute(o)
+
     def inplace_data(self, int i):
         return self.funp.function().get().inplace_data(i)
 
     def inplace_data_with(self, int i):
         return self.funp.function().get().inplace_data_with(i)
-
-    def inplace_grad(self, int i):
-        return self.funp.function().get().inplace_grad(i)
-
-    def inplace_grad_with(self, int i):
-        return self.funp.function().get().inplace_grad_with(i)
 
     @property
     def need_grad(self):
@@ -246,6 +261,15 @@ cdef class Function:
     @property
     def rank(self):
         return self.funp.rank()
+
+    @property
+    def arguments(self):
+        info = eval(self.funp.info().replace("inf", "float('inf')").replace("-inf", "float('-inf')"))
+        return info['args']
+
+    def _proto_call(self, inputs, int n_outputs, outputs):
+        info = eval(self.funp.info())
+        return ProtoFunction(self, info['name'], info['args'])(inputs, n_outputs)
     
     def _imperative_call(self, inputs, int n_outputs, outputs):
         cdef vector[NdArrayPtr] na_outputs
@@ -286,10 +310,27 @@ cdef class Function:
         if outputs is None:
             outputs = []
         if inputs:
-            for i in range(len(inputs)):
-                if isinstance(inputs[i], NdArray):
-                    return self._imperative_call(inputs, n_outputs, outputs)
-        return self._cg_call(inputs, n_outputs, outputs, auto_forward)
+            if any([isinstance(inp, ProtoVariable) for inp in inputs]):
+                return self._proto_call(inputs, n_outputs, outputs)
+            elif any([isinstance(inp, NdArray) for inp in inputs]):
+                return self._imperative_call(inputs, n_outputs, outputs)
+        out = self._cg_call(inputs, n_outputs, outputs, auto_forward)
+
+        import nnabla
+        if not auto_forward or not nnabla.parameter.current_no_grad:
+            return out
+
+        return out.get_unlinked_variable(need_grad=False) if not isinstance(out, (tuple, list)) else \
+          tuple([o.get_unlinked_variable(need_grad=False) for o in out])
+
+    @property
+    def args(self):
+        """Experimental
+
+        Get args of the function.
+        """
+        info = eval(self.funp.info())
+        return info['args']
 
     @property
     def tags(self):
@@ -334,7 +375,7 @@ cdef class Function:
 cdef class UnsafeVariable:
     """This is a Python wrapper class for Variable class in C++.
 
-    Note:
+    .. note::
         that it is intended to be used only in PythonFunction. Copying
         a reference of this class to outside of Python Function is prohibited
         because the lifetime of C++ is not ensured after calling
@@ -391,7 +432,7 @@ cdef class UnsafeVariable:
         """Get data as ``NdArray``.
 
         Returns:
-            :class:`~nnabla._nd_array.NdArray`
+            :class:`~nnabla.NdArray`
         """
         return NdArray.create(self.var.data())
 
@@ -400,7 +441,7 @@ cdef class UnsafeVariable:
         """Get grad as ``NdArray``.
 
         Returns:
-            :class:`~nnabla._nd_array.NdArray`
+            :class:`~nnabla.NdArray`
         """
         return NdArray.create(self.var.grad())
 
@@ -457,7 +498,9 @@ cdef void setup_callback(void *cself, const Variables &cinputs,
     outputs = to_unsafe_variables(coutputs)
 
     # Call setup_impl in function.
-    self.setup_impl(inputs, outputs)
+    from nnabla import context_scope
+    with context_scope(self.ctx):
+        self.setup_impl(inputs, outputs)
 
 cdef void forward_callback(void *cself, const Variables &cinputs,
                            const Variables &coutputs) except+ with gil:
@@ -468,8 +511,10 @@ cdef void forward_callback(void *cself, const Variables &cinputs,
     inputs = to_unsafe_variables(cinputs)
     outputs = to_unsafe_variables(coutputs)
 
-    # Call setup_impl in function.
-    self.forward_impl(inputs, outputs)
+    # Call forward_impl in function.
+    from nnabla import context_scope
+    with context_scope(self.ctx):    
+        self.forward_impl(inputs, outputs)
 
 cdef void backward_callback(void *cself, const Variables &cinputs,
                             const Variables &coutputs,
@@ -482,10 +527,12 @@ cdef void backward_callback(void *cself, const Variables &cinputs,
     inputs = to_unsafe_variables(cinputs)
     outputs = to_unsafe_variables(coutputs)
 
-    # Call setup_impl in function.
-    self.backward_impl(inputs, outputs,
-                       [propagate_down[i] for i in range(propagate_down.size())],
-                       [accum[i] for i in range(accum.size())])
+    # Call backward_impl in function.
+    from nnabla import context_scope
+    with context_scope(self.ctx):    
+        self.backward_impl(inputs, outputs,
+                           [propagate_down[i] for i in range(propagate_down.size())],
+                           [accum[i] for i in range(accum.size())])
 
 cdef void cleanup_callback(void *cself) with gil:
     """Decrement a reference count of PythonFunction.
@@ -493,15 +540,114 @@ cdef void cleanup_callback(void *cself) with gil:
     Py_DECREF(<object> cself)
     
 
+cdef cpp_bool grad_depends_output_data_callback(void *cself, int i, int o) except+ with gil:
+    cdef object self
+    self = <object>cself
+
+    # Call grad_depends_output_data in function.
+    from nnabla import context_scope
+    with context_scope(self.ctx):
+        return self.grad_depends_output_data(i, o)
+
+cdef cpp_bool grad_depends_input_data_callback(void *cself, int i, int j) except+ with gil:
+    cdef object self
+    self = <object>cself
+
+    # Call grad_depends_input_data in function.
+    from nnabla import context_scope
+    with context_scope(self.ctx):
+        return self.grad_depends_input_data(i, j)
+
 class PythonFunction:
     """
+    Creates a user-defined custom function in the subclsass.
+
+
+    To implement the naive multiplicaiton function of two variables using PythonFunction, 
+
+    .. code-block:: python
+
+        import nnabla as nn
+        import nnabla.functions as F
+        from nnabla.function import PythonFunction
+    
+        class Mul2(PythonFunction):
+
+            def __init__(self, ctx):
+                super(Mul2, self).__init__(ctx)
+
+            @property
+            def name(self):
+                return self.__class__.__name__
+
+            def min_outputs(self):
+                return 1
+
+            def setup_impl(self, inputs, outputs):
+                i0 = inputs[0]
+                i1 = inputs[1]
+                assert i0.shape == i1.shape, "Shapes of inputs are different."
+                o0 = outputs[0]
+                o0.reset_shape(i0.shape, True)
+
+            def forward_impl(self, inputs, outputs):
+                x0 = inputs[0].data
+                x1 = inputs[1].data
+                y = outputs[0].data
+
+                # We can also write like, y.copy_from(x0 * x1)
+                y.copy_from(F.mul2(x0, x1))
+
+            def backward_impl(self, inputs, outputs, propagate_down, accum):
+                # Data of inputs and outputs
+                x0 = inputs[0].data
+                x1 = inputs[1].data
+                y = outputs[0].data
+                # Grads of inputs and outputs
+                dx0 = inputs[0].grad
+                dx1 = inputs[1].grad
+                dy = outputs[0].grad
+
+                # backward w.r.t. x0
+                if propagate_down[0]:
+                    if accum[0]:
+                        dx0 += F.mul2(dy, x1)
+                    else:
+                        dx0.copy_from(F.mul2(dy, x1))
+
+                # backward w.r.t. x1
+                if propagate_down[1]:
+                    if accum[1]:
+                        dx1 += F.mul2(dy, x0)
+                    else:
+                        dx1.copy_from(F.mul2(dy, x0))
+            
+            def grad_depends_output_data(self, i, o):
+                return False
+            
+            def grad_depends_input_data(self, i, j):
+                return True
+
+        def mul2(x, y, ctx=None):
+            func = Mul2(ctx)
+            return func(x, y)
     """
+
+    def __init__(self, ctx=None):
+        """
+        Args:
+            ctx (:class:`nnabla.Context`): Context used for the forward and backward pass. If not specified,
+              the current context is used.
+        """
+        from nnabla import get_current_context
+        self._ctx = ctx if ctx else get_current_context()
+    
     def __call__(self, *inputs, n_outputs=-1, outputs=None):
         from .auto_forward import get_auto_forward
         info = Info()
-        info.args = {}
+        info.args = self.args if hasattr(self, "args") else {}
         info.type_name = self.name
-        info.tags = {}
+        info.tags = self.tags if hasattr(self, "tags") else {}
         # Increment reference count to prevent deleting this object as long as
         # the CgFunction instance created below exists.
         # The reference count is decremented at the cleanup_callback function
@@ -513,24 +659,85 @@ class PythonFunction:
                             setup_callback,
                             forward_callback,
                             backward_callback,
-                            cleanup_callback), info)
+                            cleanup_callback,
+                            grad_depends_output_data_callback,
+                            grad_depends_input_data_callback), info)
         return f(*inputs, n_outputs=n_outputs,
                  auto_forward=get_auto_forward(), outputs=outputs)
 
     @property
     def name(self):
+        """
+        Name of the function.
+        """
         raise NotImplementedError("Implement `name`.")
 
+    @property
+    def ctx(self):
+        """Context
+        Return the context if the context is set in the constructor; 
+        otherwise return the global context
+        """
+        if hasattr(self, '_ctx'):
+            return self._ctx
+        from nnabla import get_current_context
+        self._ctx = get_current_context()
+        return self._ctx
+
     def min_outputs(self):
+        """
+        Minimum number of outputs of the function.
+        """
         raise NotImplementedError("Implement `min_outputs`.")
 
+    def grad_depends_output_data(self, i, o):
+        """
+        Checking if i-th input' gradient computation requires o-th output's data or not.
+
+        Args:
+            i: (list of :class:`nnabla.Variable`): Input variable index.
+            o: (list of :class:`nnabla.Variable`): Output variable index.
+        """
+        raise NotImplementedError("Implement `grad_depends_output_data`.")
+
+    def grad_depends_input_data(self, i, j):
+        """
+        Checking if i-th input' gradient computation requires j-th input's data or not.
+
+        Args:
+            i: (list of :class:`nnabla.Variable`): Input variable index.
+            i: (list of :class:`nnabla.Variable`): Input variable index.
+        """
+        raise NotImplementedError("Implement `grad_depends_input_data`.")
+
     def setup_impl(self, inputs, outputs):
+        """
+        Setup method.
+
+        Args:
+            inputs: (list of :class:`nnabla.Variable`): Inputs to the function.
+            outputs: (list of :class:`nnabla.Variable`): Outputs from the function.
+        """
         raise NotImplementedError("Implement `setup`.")
 
     def forward_impl(self, inputs, outputs):
+        """
+        Forward method.
+
+        Args:
+            inputs: (list of :class:`nnabla.Variable`): Inputs to the function.
+            outputs: (list of :class:`nnabla.Variable`): Outputs from the function.
+        """        
         raise NotImplementedError("Implement `forward`.")
 
     def backward_impl(self, inputs, outputs, propagate_down, accum):
+        """
+        Backward method.
+
+        Args:
+            inputs: (list of :class:`nnabla.Variable`): Inputs to the function.
+            outputs: (list of :class:`nnabla.Variable`): Outputs from the function.
+        """
         raise NotImplementedError("Implement `backward`.")
 # ==============================================================================
 # Python Function End
@@ -540,7 +747,7 @@ class PythonFunction:
 class Dummy(PythonFunction):
     """
     """
-    def __init__(self):
+    def __init__(self, ctx):
         pass
 
     @property
@@ -549,6 +756,12 @@ class Dummy(PythonFunction):
 
     def min_outputs(self):
         return 1
+    
+    def grad_depends_output_data(self, i, o):
+        return False
+
+    def grad_depends_input_data(self, i, j):
+        return False
 
     def setup_impl(self, inputs, outputs):
         pass

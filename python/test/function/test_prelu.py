@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -55,6 +55,6 @@ def test_prelu_double_backward(seed, inshape, wshape, base_axis, ctx, func_name)
     x = rng.randn(*inshape).astype(np.float32)
     w = np.array(rng.randn(*wshape)).astype(np.float32)
     inputs = [x, w]
-    backward_function_tester(rng, F.prelu, None, inputs,
+    backward_function_tester(rng, F.prelu, inputs,
                              func_args=[base_axis],
-                             ctx=ctx, func_name=func_name, atol_b=1e-1, atol_accum=1e-1, dstep=1e-3)
+                             ctx=ctx, atol_accum=1e-1, dstep=1e-3)

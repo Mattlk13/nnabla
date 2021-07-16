@@ -57,10 +57,14 @@
 /python/src/nnabla/solver.cpp
 /python/src/nnabla/solver.pxd
 /python/src/nnabla/solver.pyx
+/python/src/nnabla/lms.cpp
+/python/src/nnabla/callback.cpp
 /python/src/nnabla/utils/converter/functions.pkl
 /python/src/nnabla/utils/load_function.py
 /python/src/nnabla/utils/nnabla_pb2.py
 /python/src/nnabla/utils/save_function.py
+/python/src/nnabla/utils/dlpack.cpp
+/python/src/nnabla/testing/clear_called_flag_recorder.cpp
 /python/test/Test-error.series.txt
 /python/test/Training-error.series.txt
 /python/test/Training-loss.series.txt
@@ -77,7 +81,6 @@
 /src/nbla_utils/nnabla.pb.h
 /src/nbla_utils/nnp_impl_create_function.cpp
 /third_party/*.zip
-/third_party/*/
 /third_party/hdf5-1.10.1tar.bz2
 /third_party/libarchive-3.3.2tar.gz
 /third_party/protobuf-3.1.0tar.gz
@@ -87,6 +90,8 @@
 /build-android/
 /build-doc/
 /build_wheel_py*/
+/python/src/nnabla/bin/
+/python/src/nnabla/libnnabla.so
 
 # Converted ReST
 # doc/python/tutorial/

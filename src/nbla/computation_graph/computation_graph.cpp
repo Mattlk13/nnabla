@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <mutex>
 
 namespace nbla {
 
@@ -75,7 +74,7 @@ vector<CgVariablePtr> connect(CgFunctionPtr cg_f,
 
   // check if data can be cleared or not.
   bool persistent = false, inplace = false, prohibit_clear = false;
-  for (int i = 0; i < inputs.size(); ++i) {
+  for (vector<CgVariablePtr>::size_type i = 0; i < inputs.size(); ++i) {
     auto inp = inputs[i];
     persistent |= inp->rank() == 0 || inp->persistent();
     prohibit_clear |= inp->prohibit_clear_data();
@@ -96,15 +95,15 @@ vector<CgVariablePtr> connect(CgFunctionPtr cg_f,
   // Function inputs and outputs must be Variables.
   vector<Variable *> finputs(inputs.size());
   vector<Variable *> foutputs(outputs.size());
-  for (int i = 0; i < inputs.size(); ++i) {
+  for (vector<CgVariablePtr>::size_type i = 0; i < inputs.size(); ++i) {
     finputs[i] = inputs[i]->variable().get();
   }
-  for (int i = 0; i < outputs.size(); ++i) {
+  for (vector<CgVariablePtr>::size_type i = 0; i < outputs.size(); ++i) {
     foutputs[i] = outputs[i]->variable().get();
   }
 
   // Set array reference to function output buffer if size matches.
-  for (int i = 0; i < outputs.size(); ++i) {
+  for (vector<CgVariablePtr>::size_type i = 0; i < outputs.size(); ++i) {
     if (i >= inplace_outputs.size() || !inplace_outputs[i])
       continue;
     NBLA_CHECK(inplace_outputs[i]->size() == foutputs[i]->size(),
@@ -164,30 +163,41 @@ void steal_variable_from_to(CgVariablePtr from, CgVariablePtr to) {
 void forward_all(const vector<CgVariablePtr> variables, bool clear_buffer,
                  bool clear_no_need_grad, function_hook_type function_pre_hook,
                  function_hook_type function_post_hook) {
+
+  // Set persistent for all variables to keep the data.
+  vector<bool> orig_persistent_flags;
+  for (auto &e : variables) {
+    orig_persistent_flags.push_back(e->persistent());
+    e->set_persistent(true);
+  }
+
+  // Revert persistent flags after the end of forward_all
+  DestructorCallback persistent_flag_restorer([&]() -> void {
+    for (vector<CgVariablePtr>::size_type i = 0; i < variables.size(); ++i) {
+      variables[i]->set_persistent(orig_persistent_flags[i]);
+    }
+  });
+
   unordered_set<CgFunctionPtr> fclosed;
-  for (int i = 0; i < variables.size(); ++i) {
+  for (vector<CgVariablePtr>::size_type i = 0; i < variables.size(); ++i) {
     variables[i]->forward(clear_buffer, clear_no_need_grad, &fclosed,
                           function_pre_hook, function_post_hook);
   }
 }
 
-#define SCOPED_MUTEX                                                           \
-  static std::mutex mtx;                                                       \
-  std::lock_guard<decltype(mtx)> lock(mtx)
-
 GlobalClearBufferState::GlobalClearBufferState() {}
 bool GlobalClearBufferState::clear_buffer() const {
-  SCOPED_MUTEX;
+  std::lock_guard<decltype(mtx_)> lock(mtx_);
   auto tid = std::this_thread::get_id();
   return clear_buffer_[tid];
 }
 bool GlobalClearBufferState::clear_no_need_grad() const {
-  SCOPED_MUTEX;
+  std::lock_guard<decltype(mtx_)> lock(mtx_);
   auto tid = std::this_thread::get_id();
   return clear_no_need_grad_[tid];
 }
 void GlobalClearBufferState::set(bool clear_buffer, bool clear_no_need_grad) {
-  SCOPED_MUTEX;
+  std::lock_guard<std::mutex> lock(mtx_);
   auto tid = std::this_thread::get_id();
   clear_buffer_[tid] = clear_buffer;
   clear_no_need_grad_[tid] = clear_no_need_grad;

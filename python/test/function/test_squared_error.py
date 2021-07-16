@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -36,5 +36,5 @@ def test_squared_error_double_backward(seed, ctx, func_name):
     from nbla_test_utils import backward_function_tester
     rng = np.random.RandomState(seed)
     inputs = [rng.randn(2, 3, 4).astype(np.float32) * 2 for _ in range(2)]
-    backward_function_tester(rng, F.squared_error, None, inputs,
-                             atol_b=2e-1, atol_accum=2e-1, ctx=ctx, func_name=func_name)
+    backward_function_tester(rng, F.squared_error, inputs,
+                             atol_accum=2e-1, ctx=ctx)

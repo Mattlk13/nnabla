@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,6 +30,8 @@ from .utils import *
 # We will add a single executor to NNP when converted from ONNX,
 # and set a default name to it.
 DEFAULT_EXECUTOR_NAME = "exec_0"
+
+fork_name_number = 0
 
 
 def add_value_info_as_variable(network, info):
@@ -80,6 +82,13 @@ def set_function_name(func, node_name, base_name, func_counter):
     update_function_counter(func.type, func_counter, count)
 
 
+def fork_name(name):
+    global fork_name_number
+    fork_name_number += 1
+    ret = name + '_{:04}'.format(fork_name_number)
+    return ret
+
+
 def generate_transpose(node_name, in_name, out_name, axes, base_name, func_counter):
     """Generate a Transpose operator to transpose the specified buffer.
     """
@@ -115,19 +124,6 @@ def generate_broadcast(node_name, in_name, out_name, shape, base_name, func_coun
     btp = bt.broadcast_param
     btp.shape.dim.extend(shape)
     return bt
-
-
-def generate_batchmatmul(node_name, in_name, out_name, transpose_a, transpose_b, base_name, func_counter):
-    """Generate a BatchMatmul operator to brodcast specified buffer"""
-    bm = nnabla_pb2.Function()
-    bm.type = "BatchMatmul"
-    set_function_name(bm, node_name, base_name, func_counter)
-    bm.input.extend(in_name)
-    bm.output.extend([out_name])
-    bmp = bm.batch_matmul_param
-    bmp.transpose_a = transpose_a
-    bmp.transpose_b = transpose_b
-    return bm
 
 
 def generate_split(node_name, in_name, out_name, axis, base_name, func_counter):
@@ -342,52 +338,14 @@ def rearrange_pads(pads):
     return [j for i in zip(starts, ends) for j in i]
 
 
-def convert_parameter_shape(pb):
-    """Convert the shape of some parameters so they fit NNabla's requirements.
-    We do this as a post conversion because in the future we may be able to
-    delete the whole conversion if NNabla's code gets changed"""
-    if len(pb.network) != 1:
-        raise ValueError(
-            "NNP with more then a single network is currently not supported")
-    net = pb.network[0]
-    batch_norm_constants = []
-    for f in net.function:
-        if f.type == "BatchNormalization":
-            # BatchNormalization in ONNX requires the scale, bias, mean, and variance input to be
-            # one dimensional (https://github.com/onnx/onnx/blob/master/docs/Operators.md#batchnormalization).
-            # However in NNabla these input must have a specific shape that matches the input shape.
-            # For example if the input shape is (1,3,3,3), the above variables must have the shape (1,3,1,1) and not (3).
-            # (1,3,1,1) is actually the same as a one-dimensional tensor of size 3,
-            # but NNabla's check currently does not allow this.
-            # Thus, we convert the shape of the above input so we can pass NNabla's check.
-            # If NNabla lightens the shape check, we should be able to remove this conversion.
-            # copy all input names for scale, bias, mean, variance
-            batch_norm_constants.extend(f.input[1:5])
-
-    batch_norm_constants = list(set(batch_norm_constants))
-
-    # This loop should be fairly slow since we loop through all variables and parameters per constant
-    for c in batch_norm_constants:
-        # Reshape all BatchNormalization constant inputs assuming the size is (1,size,1,1)
-        for v in net.variable:
-            if v.name == c:
-                size = v.shape.dim[0]
-                del v.shape.dim[:]
-                v.shape.dim.extend([1, size, 1, 1])
-                break
-        for p in pb.parameter:
-            if p.variable_name == c:
-                size = p.shape.dim[0]
-                del p.shape.dim[:]
-                p.shape.dim.extend([1, size, 1, 1])
-                break
-
-
 def add_tensor_as_parameter(pb, tensor):
     """Add given tensor as a parameter"""
     p = pb.parameter.add()
     p.variable_name = tensor.name
-    p.shape.dim.extend(tensor.dims)
+    shape = tensor.dims
+    if not shape:
+        shape = [1]
+    p.shape.dim.extend(shape)
     if tensor.data_type == TensorProto.FLOAT:
         # convert raw bytestream to floating points
         if tensor.raw_data:
@@ -417,7 +375,20 @@ def add_tensor_as_parameter(pb, tensor):
             p.data.extend(np.fromstring(tensor.raw_data, dtype=np.bool))
         else:
             raise ValueError("bool data not found for {}".format(tensor.name))
-
+    elif tensor.data_type == TensorProto.INT8:
+        if tensor.raw_data:
+            p.data.extend(np.fromstring(tensor.raw_data, dtype=np.int8))
+        elif len(tensor.int32_data) > 0:
+            p.data.extend(tensor.int32_data)
+        else:
+            raise ValueError("int8 data not found for {}".format(tensor.name))
+    elif tensor.data_type == TensorProto.UINT8:
+        if tensor.raw_data:
+            p.data.extend(np.fromstring(tensor.raw_data, dtype=np.uint8))
+        elif len(tensor.int32_data) > 0:
+            p.data.extend(tensor.int32_data)
+        else:
+            raise ValueError("uint8 data not found for {}".format(tensor.name))
     else:
         raise ValueError("Unsupported tensor data type for {}: {}"
                          .format(tensor.name, tensor.data_type))
@@ -426,7 +397,7 @@ def add_tensor_as_parameter(pb, tensor):
     # Add tensor as variable
     v = pb.network[0].variable.add()
     v.name = tensor.name
-    v.shape.dim.extend(tensor.dims)
+    v.shape.dim.extend(shape)
     v.type = "Parameter"
     v.initializer.type = "Constant"
     v.initializer.multiplier = 1.0
@@ -461,6 +432,8 @@ class OnnxImporter:
         self._func_counter = {}  # a counter for all functions
         self._shape_output = {}  # The shape of the output that all functions
         self._cast_node = {}  # Dict holding Cast node info, format: {output:input}
+        # Convert the shape of some parameters, format: {name: new_shape}
+        self._parameter_shape = {}
 
         # Dictionary used to convert ONNX op_type to processing method of NNabla function
         # opset_6 default op table
@@ -487,7 +460,7 @@ class OnnxImporter:
             "GlobalAveragePool": partial(self.BasePooling, 'GlobalAveragePooling'),
             "MaxPool": partial(self.BasePooling, 'MaxPooling'),
             "AveragePool": partial(self.BasePooling, 'AveragePooling'),
-            "Sum": partial(self.GeneralOperator, 'Add2'),
+            "Sum": partial(self.GeneralOperator, 'AddN'),
             "Gemm": self.Gemm,
             "Add": partial(self.BroadcastOperator, 'Add2'),
             "Mul": partial(self.BroadcastOperator, 'Mul2'),
@@ -573,7 +546,6 @@ class OnnxImporter:
 
         # opset_9 table
         self.table_op_set_9 = {
-            "Sum": partial(self.BroadcastOperator_9, 'Add2'),
             "Min": partial(self.BroadcastOperator_9, 'Minimum2'),
             "Max": partial(self.BroadcastOperator_9, 'Maximum2'),
             # Currently, caffe2 does not support this function.
@@ -597,6 +569,8 @@ class OnnxImporter:
             "ThresholdedRelu": self.ThresholdedRelu,
             "IsInf": partial(self.GeneralOperator, 'IsInf'),
             "Slice": partial(self.Slice, '10'),
+            "QuantizeLinear": self.QuantizeLinear,
+            "DequantizeLinear": self.DequantizeLinear,
         }
         self.table_op_set_10 = dict(
             self.table_op_set_9, **self.table_op_set_10)
@@ -644,11 +618,19 @@ class OnnxImporter:
             for i in self._graph.input:
                 if i.name == input_name:
                     t = i.type.tensor_type
-                    input_shape = [x.dim_value for x in t.shape.dim]
-            if len(input_shape) == 0:
-                for i in self._graph.initializer:
-                    if i.name == input_name:
-                        input_shape = i.dims
+                    if len(t.shape.dim):
+                        input_shape = [
+                            x.dim_value if not x.dim_param else 1 for x in t.shape.dim]
+                    else:
+                        input_shape = [1]
+                    return input_shape
+            for i in self._graph.initializer:
+                if i.name == input_name:
+                    if len(i.dims):
+                        input_shape = list(i.dims)
+                    else:
+                        input_shape = [1]
+                    return input_shape
         if not input_shape:
             raise ValueError(
                 "The shape of {} was not found".format(input_name))
@@ -667,14 +649,14 @@ class OnnxImporter:
                                 data.extend(np.fromstring(
                                     attr.t.raw_data, dtype=np.int64))
                             elif attr.t.int64_data:
-                                data.dim.extend(attr.t.int64_data)
+                                data.extend(attr.t.int64_data)
                             break
                         elif attr.t.data_type == TensorProto.FLOAT:
                             if attr.t.raw_data:
                                 data.extend(np.fromstring(
                                     attr.t.raw_data, dtype=np.float32))
                             elif attr.t.float_data:
-                                data.dim.extend(attr.t.float_data)
+                                data.extend(attr.t.float_data)
                             break
                         elif attr.t.data_type == TensorProto.BOOL:
                             if attr.t.raw_data:
@@ -690,14 +672,14 @@ class OnnxImporter:
                         data.extend(np.fromstring(
                             init.raw_data, dtype=np.int64))
                     elif init.int64_data:
-                        data.dim.extend(init.int64_data)
+                        data.extend(init.int64_data)
                     break
                 elif data_type == TensorProto.FLOAT:
                     if init.raw_data:
                         data.extend(np.fromstring(
                             init.raw_data, dtype=np.float32))
                     elif init.float_data:
-                        data.dim.extend(init.float_data)
+                        data.extend(init.float_data)
                     break
                 elif data_type == TensorProto.BOOL:
                     if init.raw_data:
@@ -719,36 +701,95 @@ class OnnxImporter:
         func.output.extend(n.output)
         return func
 
+    def generate_expand_batchmatmul(self, node_name, inputs, output, transpose):
+        def batchmatmul(in_names, out_name):
+            bm = nnabla_pb2.Function()
+            bm.type = "BatchMatmul"
+            set_function_name(bm, node_name, self._graph.name,
+                              self._func_counter)
+            bm.input.extend(in_names)
+            bm.output.extend(out_name)
+            bmp = bm.batch_matmul_param
+            bmp.transpose_a = transpose[0]
+            bmp.transpose_b = transpose[1]
+            return bm
+
+        f_list = []
+        transA_shape = self.get_func_input_shape(inputs[0])
+        transB_shape = self.get_func_input_shape(inputs[1])
+        output_shape = []
+        output_shape.append(
+            transA_shape[-1] if transpose[0] else transA_shape[-2])
+        output_shape.append(
+            transB_shape[-2] if transpose[1] else transB_shape[-1])
+        assert len(transA_shape) == len(
+            transB_shape), "ndim of inputs[0] must be ndim of inputs[1]."
+        if len(transA_shape) < 3:
+            # Expand input[0]
+            transA_rp_out = fork_name(inputs[0]) + "_reshape"
+            rp = generate_reshape(node_name, inputs[0], transA_rp_out,
+                                  [1] + transA_shape, self._graph.name, self._func_counter)
+            self._shape_output[transA_rp_out] = [1] + transA_shape
+            f_list.append(rp)
+
+            # Expand input[1]
+            transB_rp_out = fork_name(inputs[1]) + "_reshape"
+            rp = generate_reshape(node_name, inputs[1], transB_rp_out,
+                                  [1] + transB_shape, self._graph.name, self._func_counter)
+            self._shape_output[transB_rp_out] = [1] + transB_shape
+            f_list.append(rp)
+
+            # BatchMatmul
+            matmul_out = fork_name(output[0]) + "_batchmatmul"
+            bm = batchmatmul([transA_rp_out, transB_rp_out], [matmul_out])
+            self._shape_output[matmul_out] = [1] + output_shape
+            f_list.append(bm)
+
+            # Reshape
+            rp = generate_reshape(node_name, matmul_out, output[0],
+                                  output_shape, self._graph.name, self._func_counter)
+            f_list.append(rp)
+            self._shape_output[output[0]] = output_shape
+        else:
+            bm = batchmatmul(inputs, output)
+            self._shape_output[output[0]] = output_shape
+            f_list.append(bm)
+
+        return f_list
+
     def Convolution(self, func_list, n):
         func = self.generate_default_function("Convolution", n)
         cp = func.convolution_param
+        input_shape = self.get_func_input_shape(func.input[0])
+        weight_shape = self.get_func_input_shape(func.input[1])
         # We shouldn't need these default settings
         # since NNabla will set these for us
         cp.base_axis = 1
         cp.group = 1
-        dims = []
-        pads = []
-        strides = []
-        dilations = []
+        dims = len(input_shape) - 2
+        pads = [0] * dims * 2
+        strides = [1] * dims
+        dilations = [1] * dims
+        auto_pad = "NOTSET"
         for attr in n.attribute:
             if attr.name == "pads":
                 if attr.type != AttributeProto.INTS:
                     raise ValueError(
                         "Only INTS are supported for pads in Conv op_type")
+                pads.clear()
                 pads.extend(attr.ints)
-                dims.append(len(pads)//2)
             elif attr.name == "strides":
                 if attr.type != AttributeProto.INTS:
                     raise ValueError(
                         "Only INTS are supported for strides in Conv op_type")
+                strides.clear()
                 strides.extend(attr.ints)
-                dims.append(len(strides))
             elif attr.name == "dilations":
                 if attr.type != AttributeProto.INTS:
                     raise ValueError(
                         "Only INTS are supported for dilations in Conv op_type")
+                dilations.clear()
                 dilations.extend(attr.ints)
-                dims.append(len(dilations))
             elif attr.name == "group":
                 if attr.type != AttributeProto.INT:
                     raise ValueError(
@@ -759,59 +800,60 @@ class OnnxImporter:
                 # since NNabla doesn't have a parameter for it
                 # (it will be inferred from weight input)
                 pass
+            elif attr.name == "auto_pad":
+                if attr.type != AttributeProto.STRING:
+                    raise ValueError("Only STRING is supported for auto_pad in {} op_type"
+                                     .format(n.op_type))
+                auto_pad = attr.s.decode("utf-8")
             else:
                 raise ValueError("Unsupported attribute {} was specified at {}"
                                  .format(attr.name, n.op_type))
+
         # NNabla requires for the dimensions of strides, pads, dilations to match.
         # We align the dimensions for all three attributes to the shortest one
-        dim = min(dims)
-        if strides:
-            cp.stride.dim.extend(strides[:])
-        else:
-            cp.stride.dim.extend([1]*dim)
-        if pads:
-            padval = []
-            asymmetry = check_padding(pads, dim, padval)
-            if asymmetry:
-                # Add a separate padding function for
-                # asymmetry padding
-                input = n.input[0]
-                padded = input+"_pad"
-                pad_width = rearrange_pads(pads)
-                padf = generate_pad(n.name, input, padded,
-                                    "constant", pad_width, 0,
-                                    self._graph.name, self._func_counter)
-                output_shape = []
-                input_shape = self.get_func_input_shape(input)
-                s = len(pad_width) // 2
-                shape = input_shape[-s:]
-                for i in range(s):
-                    shape[i] += pad_width[2 * i]
-                    shape[i] += pad_width[2 * i + 1]
-                output_shape.extend(input_shape[:-s])
-                output_shape.extend(shape)
-                self._shape_output[padded] = output_shape
-                func_list.append(padf)
-                # Rewire input to the padded version
-                func.input[0] = padded
-            cp.pad.dim.extend(padval)
-        else:
-            # Set default values.
-            # Do we really need this? (Default value should be set by NNabla)
-            cp.pad.dim.extend([0]*dim)
-        if dilations:
-            cp.dilation.dim.extend(dilations[:])
-        else:
-            # Set default values.
-            # Do we really need this? (Default value should be set by NNabla)
-            cp.dilation.dim.extend([1]*dim)
+        cp.stride.dim.extend(strides[:])
+        cp.dilation.dim.extend(dilations[:])
+        if auto_pad != 'NOTSET':
+            o = input_shape[2:]
+            k = weight_shape[2:]
+            pads_value = [0] * dims
+            if auto_pad in ('SAME_UPPER', 'SAME_LOWER'):
+                for i in range(dims):
+                    pads_value[i] = (o[i] - 1) * strides[i] + \
+                                     k[i] - input_shape[2 + i]
+            elif auto_pad == 'VALID':
+                pass
+            for i in range(dims):
+                if auto_pad == 'SAME_LOWER':
+                    pads[i + dims] = pads_value[i] // 2
+                    pads[i] = pads_value[i] - pads[i + dims]
+                elif auto_pad == 'SAME_UPPER':
+                    pads[i] = pads_value[i] // 2
+                    pads[i + dims] = pads_value[i] - pads[i + dims]
 
-        output_shape = []
-        input_shape = self.get_func_input_shape(func.input[0])
-        weight_shape = self.get_func_input_shape(func.input[1])
+        padval = []
+        asymmetry = check_padding(pads, dims, padval)
+        if asymmetry:
+            # Add a separate padding function for
+            # asymmetry padding
+            input = n.input[0]
+            padded = fork_name(input)+"_pad"
+            pad_width = rearrange_pads(pads)
+            padf = generate_pad(n.name, input, padded,
+                                "constant", pad_width, 0,
+                                self._graph.name, self._func_counter)
+            for i in range(dims):
+                input_shape[2 + i] += pad_width[2 * i]
+                input_shape[2 + i] += pad_width[2 * i + 1]
+            self._shape_output[padded] = input_shape
+            func_list.append(padf)
+            # Rewire input to the padded version
+            func.input[0] = padded
+        cp.pad.dim.extend(padval)
+
         output_shape = input_shape[:1]
         output_shape.append(weight_shape[0])
-        for index in range(dim):
+        for index in range(dims):
             d = cp.dilation.dim[index]
             p = cp.pad.dim[index]
             s = cp.stride.dim[index]
@@ -828,6 +870,8 @@ class OnnxImporter:
         # We need to rearrange the input data order.
         # ONNX BatchNormalization input order: X, scale, bias, mean, variance
         # NNabla BatchNormalization input order: X, beta, gamma, mean, variance
+        input_shape = self.get_func_input_shape(n.input[0])
+        scale_shape = self.get_func_input_shape(n.input[1])
         nnp_order = [0, 2, 1, 3, 4]
         if len(n.input) != len(nnp_order):
             raise ValueError(
@@ -863,6 +907,10 @@ class OnnxImporter:
             bnp.batch_stat = True
         else:
             bnp.batch_stat = False
+        new_const_inp_shape = [1] * len(input_shape)
+        new_const_inp_shape[1] = scale_shape[0]
+        for inp in n.input[1:5]:
+            self._parameter_shape[inp] = new_const_inp_shape
         self._shape_output[func.output[0]
                            ] = self.get_func_input_shape(func.input[0])
         func_list.append(func)
@@ -886,7 +934,9 @@ class OnnxImporter:
 
     def Reshape(self, func_list, n):
         func = self.generate_default_function("Reshape", n)
+        input_shape = self.get_func_input_shape(func.input[0])
         rp = func.reshape_param
+        new_shape = []
         shape_found = False
         for attr in n.attribute:
             if attr.name == "shape":
@@ -894,7 +944,7 @@ class OnnxImporter:
                 if attr.type != AttributeProto.INTS:
                     raise ValueError(
                         "Only INTS is supported for shape in {} op_type".format(n.op_type))
-                rp.shape.dim.extend(attr.ints)
+                new_shape.extend(attr.ints)
                 shape_found = True
             else:
                 raise ValueError("Unsupported attribute {} was specified at {}"
@@ -906,14 +956,29 @@ class OnnxImporter:
             # so we convert the shape input to a parameter
             shape_input = func.input[1]
             raw_data = self.get_input_raw_data(shape_input, TensorProto.INT64)
-            rp.shape.dim.extend(raw_data)
+            new_shape.extend(raw_data)
             shape_found = True
             # stored the merged input so we can ignore it later
             del func.input[1]
         if not shape_found:
             raise ValueError(
                 "Shape information was not found in {} op_type".format(n.op_type))
-        self._shape_output[func.output[0]] = rp.shape.dim
+
+        if -1 in new_shape:
+            shape_infer_index = -1
+            reset_size = 1
+            for i, s in enumerate(new_shape):
+                if s < 0:
+                    if shape_infer_index >= 0:
+                        raise ValueError(
+                            'Reshape: shape has multiple negative number.')
+                    shape_infer_index = i
+                else:
+                    reset_size *= s
+            new_shape[shape_infer_index] = int(
+                np.prod(input_shape) / reset_size)
+        rp.shape.dim.extend(new_shape)
+        self._shape_output[func.output[0]] = new_shape
         func_list.append(func)
 
     def Transpose(self, func_list, n):
@@ -990,7 +1055,6 @@ class OnnxImporter:
                                               kp,
                                               input_spatial_shape
                                               ):
-            dims = []
             strides = []
             pads = []
             kernel = []
@@ -1002,19 +1066,16 @@ class OnnxImporter:
                         raise ValueError("Only INTS are supported for strides in {}"
                                          .format(node.op_type))
                     strides.extend(attr.ints)
-                    dims.append(len(strides))
                 elif attr.name == "pads":
                     if attr.type != AttributeProto.INTS:
                         raise ValueError("Only INTS are supported for pads in {}"
                                          .format(node.op_type))
                     pads.extend(attr.ints)
-                    dims.append(len(pads))
                 elif attr.name == "kernel_shape":
                     if attr.type != AttributeProto.INTS:
                         raise ValueError("Only INTS are supported for kernel_shape in {}"
                                          .format(node.op_type))
                     kernel.extend(attr.ints)
-                    dims.append(len(kernel))
                 elif attr.name == "count_include_pad":
                     if attr.type != AttributeProto.INT:
                         raise ValueError("Only INT is supported for count_include_pad in {} op_type"
@@ -1081,7 +1142,7 @@ class OnnxImporter:
             if asymmetry:
                 pad_width = rearrange_pads(pads)
                 input = n.input[0]
-                pad_out = input + "_pad"
+                pad_out = fork_name(input) + "_pad"
                 padf = generate_pad(n.name, input, pad_out,
                                     pad_mode, pad_width, value,
                                     self._graph.name, self._func_counter)
@@ -1165,7 +1226,7 @@ class OnnxImporter:
         broadcasted_postfix = "_broadcasted"
         input = n.input[:]
         bin = n.input[b_idx]
-        bout = bin+broadcasted_postfix
+        bout = fork_name(bin)+broadcasted_postfix
         bt = generate_broadcast_to(n.name, n.input[0], bin, bout, broadcast_axis,
                                    self._graph.name, self._func_counter)
         self._shape_output[bout] = self.get_func_input_shape(n.input[0])
@@ -1179,11 +1240,11 @@ class OnnxImporter:
 
     def BroadcastOperator_9(self, func_name, func_list, n):
         func = self.generate_default_function(func_name, n)
-        # NNabla can only process two inputs for max/min/sum.
+        # NNabla can only process two inputs for max/min.
         # Check if this is fulfilled.
         if len(n.input) != 2:
             raise ValueError(
-                "NNabla can only process Min/Max/Sum of two tensors")
+                "NNabla can only process Min/Max of two tensors")
         input0_shape = self.get_func_input_shape(func.input[0])
         input1_shape = self.get_func_input_shape(func.input[1])
         input0_dim = len(input0_shape)
@@ -1204,7 +1265,7 @@ class OnnxImporter:
                 if input0_dim < ndim:
                     shape.extend(list(np.ones(ndim-input0_dim, dtype=np.int)))
                     shape.extend(input0_shape)
-                    out = n.input[0]+"_shape"
+                    out = fork_name(n.input[0])+"_shape"
                     rp = generate_reshape(n.name, n.input[0], out, shape,
                                           self._graph.name, self._func_counter)
                     self._shape_output[out] = shape
@@ -1215,7 +1276,7 @@ class OnnxImporter:
                 elif input1_dim < ndim:
                     shape.extend(list(np.ones(ndim-input1_dim, dtype=np.int)))
                     shape.extend(input1_shape)
-                    out = n.input[1]+"_shape"
+                    out = fork_name(n.input[1])+"_shape"
                     rp = generate_reshape(n.name, n.input[1], out, shape,
                                           self._graph.name, self._func_counter)
                     self._shape_output[out] = shape
@@ -1233,7 +1294,6 @@ class OnnxImporter:
             func_list.append(func)
 
     def Gemm(self, func_list, n):
-        func = self.generate_default_function("Add2", n)
         alpha = 1.0
         beta = 1.0
         transpose_a = 0
@@ -1272,37 +1332,35 @@ class OnnxImporter:
 
         if alpha != 1.0:
             # MulScalar
-            muls_out = inputs[0]+"_muls"
+            muls_out = fork_name(inputs[0])+"_muls"
             muls = generate_mul_scalar(n.name, inputs[0], muls_out,
                                        alpha, self._graph.name, self._func_counter)
-            self._shape_output[muls_out] = shape
+            self._shape_output[muls_out] = transA_shape
             func_list.append(muls)
             inputs[0] = muls_out
 
         if len(inputs) < 3:
-            bm = generate_batchmatmul(n.name, inputs[:2], n.output[0], transpose_a, transpose_b,
-                                      self._graph.name, self._func_counter)
-            self._shape_output[n.output[0]] = shape
-            func_list.append(bm)
+            expand_bm = self.generate_expand_batchmatmul(
+                n.name, inputs, n.output, [transpose_a, transpose_b])
+            func_list.extend(expand_bm)
         else:
             bias_shape = self.get_func_input_shape(inputs[2])
             if beta != 1.0:
                 # MulScalar
-                muls_out = inputs[2]+"_muls"
+                muls_out = fork_name(inputs[2])+"_muls"
                 muls = generate_mul_scalar(n.name, inputs[2], muls_out,
                                            beta, self._graph.name, self._func_counter)
                 self._shape_output[muls_out] = bias_shape
                 func_list.append(muls)
                 inputs[2] = muls_out
 
-            bmout = n.input[0] + "_batchmatmul"
-            bm = generate_batchmatmul(n.name, inputs[:2], bmout, transpose_a, transpose_b,
-                                      self._graph.name, self._func_counter)
-            self._shape_output[bmout] = shape
-            func_list.append(bm)
-            inputs[0] = bmout
+            expand_bm_out = fork_name(n.output[0]) + "_bm"
+            expand_bm = self.generate_expand_batchmatmul(
+                n.name, inputs, [expand_bm_out], [transpose_a, transpose_b])
+            func_list.extend(expand_bm)
+
             if len(bias_shape) != len(shape):
-                rout = inputs[2] + "_reshape"
+                rout = fork_name(inputs[2]) + "_reshape"
                 bias_shape = [1] * (len(shape) - len(bias_shape)) + bias_shape
                 rp = generate_reshape(n.name, inputs[2], rout, bias_shape,
                                       self._graph.name, self._func_counter)
@@ -1312,7 +1370,7 @@ class OnnxImporter:
 
             add2_func = self.generate_default_function("Add2", n)
             del add2_func.input[:]
-            add2_func.input.extend([bmout, inputs[2]])
+            add2_func.input.extend([expand_bm_out, inputs[2]])
             func_list.append(add2_func)
             self._shape_output[n.output[0]] = shape
 
@@ -1332,7 +1390,7 @@ class OnnxImporter:
                                  .format(attr.name, n.op_type))
 
         # Reshape
-        rout_x = n.input[0]+"_reshape"
+        rout_x = fork_name(n.input[0])+"_reshape"
         _shape = [int(np.prod(input_shape[:axis])),
                   int(np.prod(input_shape[axis:]))]
         rp = generate_reshape(n.name, n.input[0], rout_x, _shape,
@@ -1341,35 +1399,35 @@ class OnnxImporter:
         func_list.append(rp)
 
         # Max
-        mout_x = rout_x+"_max"
+        mout_x = fork_name(rout_x)+"_max"
         gr = generate_reduction("Max", n.name, rout_x, mout_x,
                                 [1], True, self._graph.name, self._func_counter)
         self._shape_output[mout_x] = [_shape[0], 1]
         func_list.append(gr)
 
         # Sub2
-        sout_x = rout_x+"_sub2"
+        sout_x = fork_name(rout_x)+"_sub2"
         ga = generate_arithmetic("Sub2", n.name, [rout_x, mout_x], sout_x,
                                  self._graph.name, self._func_counter)
         self._shape_output[sout_x] = _shape
         func_list.append(ga)
 
         # Exp
-        expout_x = sout_x+"_exp"
+        expout_x = fork_name(sout_x)+"_exp"
         ge = generate_unary("Exp", n.name, sout_x, expout_x,
                             self._graph.name, self._func_counter)
         self._shape_output[expout_x] = _shape
         func_list.append(ge)
 
         # Sum
-        sumout_x = expout_x+"_sum"
+        sumout_x = fork_name(expout_x)+"_sum"
         gr = generate_reduction("Sum", n.name, expout_x, sumout_x,
                                 [1], True, self._graph.name, self._func_counter)
         self._shape_output[sumout_x] = [_shape[0], 1]
         func_list.append(gr)
 
         # Div2
-        div2out_x = n.output[0]+"_div2"
+        div2out_x = fork_name(n.output[0])+"_div2"
         ga = generate_arithmetic("Div2", n.name, [expout_x, sumout_x], div2out_x,
                                  self._graph.name, self._func_counter)
         self._shape_output[div2out_x] = _shape
@@ -1406,6 +1464,7 @@ class OnnxImporter:
                 raise ValueError("Unsupported attribute {} was specified at {}"
                                  .format(attr.name, n.op_type))
         if opset == "11":
+            del func.input[1:]
             pads = self.get_input_raw_data(n.input[1], TensorProto.INT64)
             try:
                 value = self.get_input_raw_data(
@@ -1527,14 +1586,14 @@ class OnnxImporter:
         # Convert to PowScalar+Transpose+SumPooling+Transpose+
         # MulScalar+AddScalar+PowScalar
         pow0_in = n.input[0]
-        pow0_out = pow0_in+"_pow0"
+        pow0_out = fork_name(pow0_in)+"_pow0"
         pow0 = generate_pow_scalar(n.name, pow0_in, pow0_out,
                                    2, self._graph.name, self._func_counter)
         self._shape_output[pow0_out] = self.get_func_input_shape(pow0_in)
         func_list.append(pow0)
         # Transpose the channel axis so we can sumpool along the channels
         # We are assuming 4D input
-        trans0_out = pow0_out+"_trans0"
+        trans0_out = fork_name(pow0_out)+"_trans0"
         axes = [0, 2, 3, 1]
         trans0 = generate_transpose(n.name, pow0_out, trans0_out,
                                     axes, self._graph.name, self._func_counter)
@@ -1547,7 +1606,7 @@ class OnnxImporter:
         func_list.append(trans0)
         # SumPool along channels.
         padval = (size - 1)//2
-        sp_out = trans0_out+"_sp"
+        sp_out = fork_name(trans0_out)+"_sp"
         sump = generate_sum_pooling(n.name, trans0_out, sp_out,
                                     [1, size], [1, 1], True, [0, padval],
                                     self._graph.name, self._func_counter)
@@ -1567,7 +1626,7 @@ class OnnxImporter:
         self._shape_output[sp_out] = output_shape
         func_list.append(sump)
         # Transpose back
-        trans1_out = sp_out+"_trans1"
+        trans1_out = fork_name(sp_out)+"_trans1"
         axes = [0, 3, 1, 2]
         trans1 = generate_transpose(n.name, sp_out, trans1_out,
                                     axes, self._graph.name, self._func_counter)
@@ -1579,19 +1638,19 @@ class OnnxImporter:
         self._shape_output[trans1_out] = output_shape
         func_list.append(trans1)
         # MulScalar
-        muls_out = trans1_out+"_muls"
+        muls_out = fork_name(trans1_out)+"_muls"
         muls = generate_mul_scalar(n.name, trans1_out, muls_out,
                                    alpha/size, self._graph.name, self._func_counter)
         self._shape_output[muls_out] = self._shape_output[trans1_out]
         func_list.append(muls)
         # AddScalar
-        adds_out = muls_out+"_adds"
+        adds_out = fork_name(muls_out)+"_adds"
         adds = generate_add_scalar(n.name, muls_out, adds_out,
                                    bias, self._graph.name, self._func_counter)
         self._shape_output[adds_out] = self._shape_output[muls_out]
         func_list.append(adds)
         # PowScalar
-        pow1_out = adds_out+"_pow1"
+        pow1_out = fork_name(adds_out)+"_pow1"
         pow1 = generate_pow_scalar(n.name, adds_out, pow1_out,
                                    beta, self._graph.name, self._func_counter)
         self._shape_output[pow1_out] = self._shape_output[adds_out]
@@ -1698,17 +1757,9 @@ class OnnxImporter:
         func_list.append(func)
 
     def BatchMatmul(self, func_list, n):
-        func = self.generate_default_function("BatchMatmul", n)
-        output_shape = []
-        shape_a = self.get_func_input_shape(func.input[0])
-        shape_b = self.get_func_input_shape(func.input[1])
-        row_a = shape_a[len(shape_a) - 2]
-        col_b = shape_b[len(shape_b) - 1]
-        output_shape.extend(shape_a[:-2])
-        output_shape.append(row_a)
-        output_shape.append(col_b)
-        self._shape_output[func.output[0]] = output_shape
-        func_list.append(func)
+        expand_bm = self.generate_expand_batchmatmul(
+            n.name, n.input, n.output, [0, 0])
+        func_list.extend(expand_bm)
 
     def ElementWiseScalar(self, func_name, func_list, n):
         func = self.generate_default_function(func_name, n)
@@ -1739,7 +1790,7 @@ class OnnxImporter:
                                  .format(attr.name, n.op_type))
 
         # Reshape
-        rout_x = n.input[0]+"_reshape"
+        rout_x = fork_name(n.input[0])+"_reshape"
         _shape = [int(np.prod(input_shape[:axis])),
                   int(np.prod(input_shape[axis:]))]
         rp = generate_reshape(n.name, n.input[0], rout_x, _shape,
@@ -1748,49 +1799,49 @@ class OnnxImporter:
         func_list.append(rp)
 
         # Max
-        mout_x = rout_x+"_max"
+        mout_x = fork_name(rout_x)+"_max"
         gr = generate_reduction("Max", n.name, rout_x, mout_x,
                                 [1], True, self._graph.name, self._func_counter)
         self._shape_output[mout_x] = [_shape[0], 1]
         func_list.append(gr)
 
         # Sub2
-        sout_x = rout_x+"_sub2"
+        sout_x = fork_name(rout_x)+"_sub2"
         ga = generate_arithmetic("Sub2", n.name, [rout_x, mout_x], sout_x,
                                  self._graph.name, self._func_counter)
         self._shape_output[sout_x] = _shape
         func_list.append(ga)
 
         # Exp
-        expout_x = sout_x+"_exp"
+        expout_x = fork_name(sout_x)+"_exp"
         ge = generate_unary("Exp", n.name, sout_x, expout_x,
                             self._graph.name, self._func_counter)
         self._shape_output[expout_x] = _shape
         func_list.append(ge)
 
         # Sum
-        sumout_x = expout_x+"_sum"
+        sumout_x = fork_name(expout_x)+"_sum"
         gr = generate_reduction("Sum", n.name, expout_x, sumout_x,
                                 [1], True, self._graph.name, self._func_counter)
         self._shape_output[sumout_x] = [_shape[0], 1]
         func_list.append(gr)
 
         # Log
-        logout_x = sumout_x+"_log"
+        logout_x = fork_name(sumout_x)+"_log"
         ge = generate_unary("Log", n.name, sumout_x, logout_x,
                             self._graph.name, self._func_counter)
         self._shape_output[logout_x] = [_shape[0], 1]
         func_list.append(ge)
 
         # Add2
-        add2out_x = rout_x+"_add2"
+        add2out_x = fork_name(rout_x)+"_add2"
         ga = generate_arithmetic("Add2", n.name, [mout_x, logout_x], add2out_x,
                                  self._graph.name, self._func_counter)
         self._shape_output[add2out_x] = [_shape[0], 1]
         func_list.append(ga)
 
         # Sub2
-        sub2out = n.output[0]+"sub2"
+        sub2out = fork_name(n.output[0])+"sub2"
         ga = generate_arithmetic("Sub2", n.name, [rout_x, add2out_x], sub2out,
                                  self._graph.name, self._func_counter)
         self._shape_output[sub2out] = _shape
@@ -1853,7 +1904,7 @@ class OnnxImporter:
         else:  # both min and max is specified
             # Add MinimumScalar and rewire with MaximumScalar
             minin = n.input[0]
-            minout = minin+"_min"
+            minout = fork_name(minin)+"_min"
             minf = generate_minimum_scalar(n.name, minin, minout,
                                            maxval, self._graph.name, self._func_counter)
             self._shape_output[minout] = self.get_func_input_shape(minin)
@@ -1870,20 +1921,24 @@ class OnnxImporter:
     def Unsqueeze(self, func_list, n):
         func = self.generate_default_function("Reshape", n)
         rp = func.reshape_param
-        output_shape = self.get_func_input_shape(func.input[0])
+        input_shape = self.get_func_input_shape(func.input[0])
+        axes = []
         for attr in n.attribute:
             if attr.name == "axes":
                 if attr.type != AttributeProto.INTS:
                     raise ValueError(
                         "Only INTS is supported for axes in {} op_type".format(n.op_type))
                 for index in attr.ints:
-                    if index < 0:
-                        output_shape.insert(len(output_shape) + index, 1)
-                    else:
-                        output_shape.insert(index, 1)
+                    axes.append(index)
             else:
                 raise ValueError("Unsupported attribute {} was specified at {}"
                                  .format(attr.name, n.op_type))
+        output_shape = [0] * (len(input_shape) + len(axes))
+        for axis in axes:
+            output_shape[axis] = 1
+        for i in reversed(range(len(output_shape))):
+            if output_shape[i] == 0:
+                output_shape[i] = input_shape.pop()
         rp.shape.dim.extend(output_shape)
         func_list.append(func)
         self._shape_output[func.output[0]] = output_shape
@@ -1948,6 +2003,7 @@ class OnnxImporter:
                     logger.info('Unsupported attribute {} was specified at {}'
                                 .format(attr.name, n.op_type))
         else:
+            del func.input[1:]
             starts = self.get_input_raw_data(n.input[1], TensorProto.INT64)
             ends = self.get_input_raw_data(n.input[2], TensorProto.INT64)
             try:
@@ -2070,7 +2126,7 @@ class OnnxImporter:
 
         # Reshape
         rin = n.input[0]
-        rout = n.input[0]+"_reshape"
+        rout = fork_name(n.input[0])+"_reshape"
         if mode == "DCR":
             _shape = [b, blocksize, blocksize, c // (blocksize**2), h, w]
         else:
@@ -2081,7 +2137,7 @@ class OnnxImporter:
         func_list.append(rp)
 
         # Transpose
-        trans_out = rout+"_trans"
+        trans_out = fork_name(rout)+"_trans"
         if mode == "DCR":
             axes = [0, 3, 4, 1, 5, 2]
         else:
@@ -2123,7 +2179,7 @@ class OnnxImporter:
         reduced_w = w // blocksize
         # Reshape
         rin = n.input[0]
-        rout = n.input[0]+"_reshape"
+        rout = fork_name(n.input[0])+"_reshape"
         _shape = [b, c, reduced_h, blocksize, reduced_w, blocksize]
         rp = generate_reshape(n.name, rin, rout, _shape,
                               self._graph.name, self._func_counter)
@@ -2131,7 +2187,7 @@ class OnnxImporter:
         func_list.append(rp)
 
         # Transpose
-        trans_out = rout+"_trans"
+        trans_out = fork_name(rout)+"_trans"
         axes = [0, 3, 5, 1, 2, 4]
         transp = generate_transpose(n.name, rout, trans_out,
                                     axes, self._graph.name, self._func_counter)
@@ -2146,7 +2202,7 @@ class OnnxImporter:
         _shape = [b, c * (blocksize**2), reduced_h, reduced_w]
         rp = generate_reshape(n.name, trans_out, n.output[0], _shape,
                               self._graph.name, self._func_counter)
-        self._shape_output[rout] = _shape
+        self._shape_output[n.output[0]] = _shape
         func_list.append(rp)
 
     def ElementIndices(self, func_name, func_list, n):
@@ -2308,6 +2364,7 @@ class OnnxImporter:
                 elif init.float_data:
                     scales.extend(init.float_data)
         self._merged_inputs.append(n.input[1])
+        del func.input[1]
         scales = [int(np.floor(i)) for i in scales]
         output_shape = []
         for i in range(len(input_shape)):
@@ -2342,7 +2399,7 @@ class OnnxImporter:
                 if len(input_shape[i]) < ndim:
                     input_shape[i] = list(
                         np.ones(ndim - len(input_shape[i]), dtype=np.int)) + input_shape[i]
-                    rout = inputs[i]+"_shape"
+                    rout = fork_name(inputs[i])+"_shape"
                     rp = generate_reshape(n.name, inputs[i], rout, input_shape[i],
                                           self._graph.name, self._func_counter)
                     self._shape_output[rout] = input_shape[i]
@@ -2357,14 +2414,14 @@ class OnnxImporter:
                         need_broadcast = True
                         break
                 if need_broadcast:
-                    bout = inputs[i] + "_broadcast"
+                    bout = fork_name(inputs[i]) + "_broadcast"
                     bt = generate_broadcast(n.name, inputs[i], bout, broadcast_shape,
                                             self._graph.name, self._func_counter)
                     self._shape_output[bout] = shape
                     inputs[i] = bout
                     func_list.append(bt)
 
-            sout = func.output[0] + "_stack"
+            sout = fork_name(func.output[0]) + "_stack"
             sp = generate_stack(n.name, inputs, sout, 0,
                                 self._graph.name, self._func_counter)
             self._shape_output[sout] = [len(input_shape)] + broadcast_shape
@@ -2385,35 +2442,37 @@ class OnnxImporter:
         cp.base_axis = 1
         cp.group = 1
         dim = len(input_shape) - 2
+        auto_pad = 'NOTSET'
         pads = [0] * dim * 2
-        strides = []
-        dilations = []
-        output_padding = []
+        strides = [1] * dim
+        dilations = [1] * dim
+        output_padding = [0] * dim
         output_shape = []
         convt_output_shape = []  # explicitly set the shape of the output.
-        output_need_pad = False
 
         for attr in n.attribute:
             if attr.name == "pads":
                 if attr.type != AttributeProto.INTS:
                     raise ValueError(
-                        "Only INTS are supported for pads in Conv op_type")
+                        "Only INTS are supported for pads in ConvTranspose op_type")
                 pads.clear()
                 pads.extend(attr.ints)
             elif attr.name == "strides":
                 if attr.type != AttributeProto.INTS:
                     raise ValueError(
-                        "Only INTS are supported for strides in Conv op_type")
+                        "Only INTS are supported for strides in ConvTranspose op_type")
+                strides.clear()
                 strides.extend(attr.ints)
             elif attr.name == "dilations":
                 if attr.type != AttributeProto.INTS:
                     raise ValueError(
-                        "Only INTS are supported for dilations in Conv op_type")
+                        "Only INTS are supported for dilations in ConvTranspose op_type")
+                dilations.clear()
                 dilations.extend(attr.ints)
             elif attr.name == "group":
                 if attr.type != AttributeProto.INT:
                     raise ValueError(
-                        "Only INT is supported for group in Conv op_type")
+                        "Only INT is supported for group in ConvTranspose op_type")
                 cp.group = attr.i
             elif attr.name == "kernel_shape":
                 # We do not set 'kernel_shape' to NNabla
@@ -2423,17 +2482,23 @@ class OnnxImporter:
             elif attr.name == "output_padding":
                 if attr.type != AttributeProto.INTS:
                     raise ValueError(
-                        "Only INTS are supported for dilations in Conv op_type")
+                        "Only INTS are supported for dilations in ConvTranspose op_type")
+                output_padding.clear()
                 output_padding.extend(attr.ints)
-                output_need_pad = True
             elif attr.name == "output_shape":
                 if attr.type != AttributeProto.INTS:
                     raise ValueError(
-                        "Only INTS are supported for dilations in Conv op_type")
+                        "Only INTS are supported for dilations in ConvTranspose op_type")
                 convt_output_shape.extend(attr.ints)
+            elif attr.name == "auto_pad":
+                if attr.type != AttributeProto.STRING:
+                    raise ValueError(
+                        "Only STRING is supported for auto_pad in ConvTranspose op_type")
+                auto_pad = attr.s.decode("utf-8")
             else:
                 raise ValueError("Unsupported attribute {} was specified at {}"
                                  .format(attr.name, n.op_type))
+
         # NNabla requires for the dimensions of strides, pads, dilations to match.
         # We align the dimensions for all three attributes to the shortest one
         if strides:
@@ -2447,13 +2512,43 @@ class OnnxImporter:
             # Do we really need this? (Default value should be set by NNabla)
             cp.dilation.dim.extend([1]*dim)
 
+        if convt_output_shape:
+            for index in range(dim):
+                d = cp.dilation.dim[index]
+                s = cp.stride.dim[index]
+                w = weight_shape[2 + index]
+                i = input_shape[2 + index]
+                o = convt_output_shape[index]
+                adj = output_padding[index]
+                p = (i - 1) * s + adj + (w - 1) * d + 1 - o
+                if p <= 0:
+                    output_padding[index] -= p
+                else:
+                    if auto_pad == 'SAME_UPPER':
+                        pads[index] = p - int(p / 2)
+                        pads[index+dim] = int(p / 2)
+                    else:
+                        pads[index] = int(p / 2)
+                        pads[index + dim] = p - int(p / 2)
+            output_shape = convt_output_shape
+        else:
+            for index in range(dim):
+                d = cp.dilation.dim[index]
+                s = cp.stride.dim[index]
+                w = weight_shape[2 + index]
+                i = input_shape[2 + index]
+                adj = output_padding[index]
+                o = (i - 1) * s + adj + (w - 1) * \
+                    d + 1 - pads[index] - pads[index+dim]
+                output_shape.append(o)
+
         padval = []
         asymmetry = check_padding(pads, dim, padval)
         if asymmetry:
             # Add a separate padding function for
             # asymmetry padding
             input = n.input[0]
-            padded = input+"_pad"
+            padded = fork_name(input) + "_pad"
             pad_width = rearrange_pads(pads)
             padf = generate_pad(n.name, input, padded,
                                 "constant", pad_width, 0,
@@ -2464,40 +2559,17 @@ class OnnxImporter:
                 shape[i + 2] += pad_width[2 * i + 1]
             self._shape_output[padded] = shape
             func_list.append(padf)
-            # Rewire input to the padded version
-            del func.input[:]
-            func.input.extend(padded)
+            func.input[0] = padded
         cp.pad.dim.extend(padval)
 
-        output_shape = input_shape[:1]
-        output_shape.append(weight_shape[1])
-        for index in range(dim):
-            d = cp.dilation.dim[index]
-            s = cp.stride.dim[index]
-            w = weight_shape[2+index]
-            i = input_shape[2+index]
-            k = d * (w - 1) + 1
-            o = s * (i - 1) + k - pads[index] - pads[index+dim]
-            output_shape.append(o)
-
-        if convt_output_shape:
-            import operator
-            if operator.ne(output_shape[2:], convt_output_shape):
-                output_need_pad = True
-                del output_padding[:]
-                for index in range(dim):
-                    output_padding.append(
-                        convt_output_shape[index] - output_shape[2+index])
-
-        if output_need_pad:
-            deconv_out = func.output[0] + "_deconv"
+        if output_padding != [0] * dim:
+            deconv_out = fork_name(func.output[0]) + "_deconv"
             del func.output[:]
             func.output.extend([deconv_out])
-            self._shape_output[deconv_out] = output_shape
+            self._shape_output[deconv_out] = input_shape[:1] + \
+                [weight_shape[1]] + [output_shape[i] - output_padding[i]
+                                     for i in range(dim)]
             func_list.append(func)
-
-            for index in range(dim):
-                output_shape[2+index] += output_padding[index]
 
             pad_width = [output_padding[i % 2] if i %
                          2 else 0 for i in range(2*dim)]
@@ -2505,10 +2577,10 @@ class OnnxImporter:
                                 "constant", pad_width, 0,
                                 self._graph.name, self._func_counter)
             func_list.append(padf)
-            self._shape_output[n.output[0]] = output_shape
         else:
             func_list.append(func)
-        self._shape_output[n.output[0]] = output_shape
+        self._shape_output[n.output[0]] = input_shape[:1] + \
+            [weight_shape[1]] + output_shape
 
     def ConstantOfShape(self, func_list, n):
         func = self.generate_default_function("Constant", n)
@@ -2543,7 +2615,7 @@ class OnnxImporter:
 
         if len(raw_data) > len(input_shape):
             new_shape = [1] * (len(raw_data) - len(input_shape)) + input_shape
-            rout = n.input[0]+"_shape"
+            rout = fork_name(n.input[0])+"_shape"
             rp = generate_reshape(n.name, n.input[0], rout, new_shape,
                                   self._graph.name, self._func_counter)
             self._shape_output[rout] = new_shape
@@ -2570,19 +2642,19 @@ class OnnxImporter:
             func = self.generate_default_function("HardSigmoid", n)
             func_list.append(func)
         else:
-            muls_out = n.input[0]+"_muls"
+            muls_out = fork_name(n.input[0])+"_muls"
             muls = generate_mul_scalar(n.name, n.input[0], muls_out,
                                        alpha, self._graph.name, self._func_counter)
             self._shape_output[muls_out] = shape
             func_list.append(muls)
 
-            adds_out = n.input[0]+"_adds"
+            adds_out = fork_name(n.input[0])+"_adds"
             adds = generate_add_scalar(n.name, muls_out, adds_out,
                                        beta, self._graph.name, self._func_counter)
             self._shape_output[adds_out] = shape
             func_list.append(adds)
 
-            mins_out = n.input[0]+"_mins"
+            mins_out = fork_name(n.input[0])+"_mins"
             mins = generate_minimum_scalar(n.name, adds_out, mins_out,
                                            1, self._graph.name, self._func_counter)
             self._shape_output[mins_out] = shape
@@ -2604,14 +2676,14 @@ class OnnxImporter:
                     axis = attr.i
         new_shape = [int(np.prod(input_shape[:axis])),
                      int(np.prod(input_shape[axis:]))]
-        rout = n.input[0]+"_shape"
+        rout = fork_name(n.input[0])+"_shape"
         rp = generate_reshape(n.name, n.input[0], rout, new_shape,
                               self._graph.name, self._func_counter)
         self._shape_output[rout] = new_shape
         func_list.append(rp)
 
         max_func = self.generate_default_function("Max", n)
-        max_out = n.input[0]+"_max"
+        max_out = fork_name(n.input[0])+"_max"
         max_func.input[0] = rout
         max_func.output[0] = max_out
         mp = max_func.max_param
@@ -2622,7 +2694,7 @@ class OnnxImporter:
         func_list.append(max_func)
 
         one_hot_func = self.generate_default_function("OneHot", n)
-        one_hot_out = n.input[0]+"_one_hot"
+        one_hot_out = fork_name(n.input[0])+"_one_hot"
         one_hot_func.input[0] = max_out
         one_hot_func.output[0] = one_hot_out
         one_hot_p = one_hot_func.one_hot_param
@@ -2641,12 +2713,12 @@ class OnnxImporter:
         nnp_order = [0, 2, 1]
         nnp_input = [n.input[i] for i in nnp_order]
 
-        mean_out = n.input[0]+"_mean"
+        mean_out = fork_name(n.input[0])+"_mean"
         mean_param = create_parameter_variable(self._pb, mean_out,
                                                scale_shape, [0]*scale_shape[0])
         self._param_vars[mean_out] = None
         nnp_input.append(mean_out)
-        variance_out = n.input[0]+"_variance"
+        variance_out = fork_name(n.input[0])+"_variance"
         variance_param = create_parameter_variable(self._pb, variance_out,
                                                    scale_shape, [0]*scale_shape[0])
         self._param_vars[variance_out] = None
@@ -2722,6 +2794,10 @@ class OnnxImporter:
             bnp.batch_stat = True
             func_list.append(bn_func)
             self._shape_output[n.output[0]] = input_shape
+        new_const_inp_shape = [1] * len(input_shape)
+        new_const_inp_shape[1] = scale_shape[0]
+        for inp in nnp_input[1:5]:
+            self._parameter_shape[inp] = new_const_inp_shape
 
     def ThresholdedRelu(self, func_list, n):
         alpha = 1.0
@@ -2730,7 +2806,7 @@ class OnnxImporter:
                 alpha = attr.f
 
         input_shape = self.get_func_input_shape(n.input[0])
-        cout = n.input[0]+"_zeros"
+        cout = fork_name(n.input[0])+"_zeros"
         constant_func = self.generate_default_function("Constant", n)
         cp = constant_func.constant_param
         cp.val = 0.0
@@ -2740,7 +2816,7 @@ class OnnxImporter:
         func_list.append(constant_func)
         self._shape_output[cout] = input_shape
 
-        gout = n.input[0]+"_greaterscalar"
+        gout = fork_name(n.input[0])+"_greaterscalar"
         greater_func = self.generate_default_function("GreaterScalar", n)
         gp = greater_func.greater_scalar_param
         gp.val = alpha
@@ -2778,7 +2854,7 @@ class OnnxImporter:
                 del output_shape[i]
 
         # PowScalar
-        pow_scalar_out = n.input[0]+"_pow2"
+        pow_scalar_out = fork_name(n.input[0])+"_pow2"
         pow_func = generate_pow_scalar(n.name, n.input[0], pow_scalar_out,
                                        2, self._graph.name, self._func_counter)
         self._shape_output[pow_scalar_out] = input_shape
@@ -2816,7 +2892,7 @@ class OnnxImporter:
         for index in indices:
             start[axis] = index
             stop[axis] = index + 1
-            slice_out = n.input[0]+"_slice_"+str(index)
+            slice_out = fork_name(n.input[0])+"_slice_"+str(index)
             func = self.generate_default_function("Slice", n)
             del func.input[1]
             func.output[0] = slice_out
@@ -2836,6 +2912,67 @@ class OnnxImporter:
         concatenate_p.axis = axis
         self._shape_output[n.output[0]] = [
             len(indices) if index == axis else i for index, i in enumerate(input_shape)]
+        func_list.append(func)
+
+    def QuantizeLinear(self, func_list, n):
+        TENSOR_TYPE_TO_INT = {
+            TensorProto.INT8: 1,
+            TensorProto.UINT8: 2,
+        }
+        func = self.generate_default_function("QuantizeLinear", n)
+        qlp = func.quantize_linear_param
+        qlp.round_mode = "HALF_TO_EVEN"
+        qlp.narrow_range = False
+        input_shape = self.get_func_input_shape(n.input[0])
+        axis = 1
+        for attr in n.attribute:
+            if attr.name == "axis":
+                if attr.i < 0:
+                    axis = len(input_shape) + attr.i
+                else:
+                    axis = attr.i
+
+        if len(n.input) < 2:
+            zero_point = fork_name(n.input[0]) + "_zero_point"
+            zero_point_shape = [1] * len(input_shape)
+            zero_point_shape[axis] = input_shape[axis]
+            create_parameter_variable(self._pb, zero_point, zero_point_shape, [
+                                      0] * input_shape[axis])
+            self._param_vars[zero_point] = None
+            func.input.append(zero_point)
+            qlp.dtype = 2
+        else:
+            dtype = TensorProto.UINT8
+            for init in self._graph.initializer:
+                if init.name == n.input[2]:
+                    dtype = init.data_type
+                    break
+            qlp.dtype = TENSOR_TYPE_TO_INT[dtype]
+
+        self._shape_output[n.output[0]] = input_shape
+        func_list.append(func)
+
+    def DequantizeLinear(self, func_list, n):
+        func = self.generate_default_function("DequantizeLinear", n)
+        input_shape = self.get_func_input_shape(n.input[0])
+        axis = 1
+        for attr in n.attribute:
+            if attr.name == "axis":
+                if attr.i < 0:
+                    axis = len(input_shape) + attr.i
+                else:
+                    axis = attr.i
+
+        if len(n.input) < 2:
+            zero_point = fork_name(n.input[0]) + "_zero_point"
+            zero_point_shape = [1] * len(input_shape)
+            zero_point_shape[axis] = input_shape[axis]
+            create_parameter_variable(self._pb, zero_point, zero_point_shape, [
+                                      0] * input_shape[axis])
+            self._param_vars[zero_point] = None
+            func.input.append(zero_point)
+
+        self._shape_output[n.output[0]] = input_shape
         func_list.append(func)
 
     def convert_to_functions(self, n):
@@ -2946,7 +3083,17 @@ class OnnxImporter:
         for name in list(self._param_vars.keys()):
             p = exe.parameter_variable.add()
             p.variable_name = name
-        convert_parameter_shape(pb)
+        # Convert the shape of some parameters
+        for var_name, shape in self._parameter_shape.items():
+            for v in network.variable:
+                if v.name == var_name:
+                    del v.shape.dim[:]
+                    v.shape.dim.extend(shape)
+                    break
+            for p in pb.parameter:
+                if p.variable_name == var_name:
+                    del p.shape.dim[:]
+                    p.shape.dim.extend(shape)
 
     def onnx_model_to_nnp_protobuf(self):
         pb = nnabla_pb2.NNablaProtoBuf()

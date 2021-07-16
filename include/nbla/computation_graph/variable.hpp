@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -51,19 +52,25 @@ This is used from Python frontend.
  */
 class FunctionHookWithObject {
 public:
+  typedef std::function<void(void *)> setup_callback_type;
   typedef std::function<void(void *)> cleanup_callback_type;
   typedef std::function<void(void *, const CgFunctionPtr &f)> callback_type;
 
 private:
   void *obj_{nullptr};
   callback_type callback_;
+  setup_callback_type setup_callback_;
   cleanup_callback_type cleanup_callback_;
 
 public:
   NBLA_API FunctionHookWithObject();
+  NBLA_API FunctionHookWithObject(const FunctionHookWithObject &from);
   NBLA_API FunctionHookWithObject(void *obj, callback_type cb,
+                                  setup_callback_type setup_cb,
                                   cleanup_callback_type clean_cb);
   NBLA_API ~FunctionHookWithObject();
+  NBLA_API FunctionHookWithObject &operator=(const FunctionHookWithObject &rhs);
+
   NBLA_API void operator()(const CgFunctionPtr &f);
 };
 
@@ -79,20 +86,25 @@ class CgVariable {
   enum NeedGrad { NG_NONE, NG_FALSE, NG_TRUE };
   struct FunctionReferenceInfo {
     bool need_setup{false};
+    size_t count{0};
   };
   NeedGrad need_grad_{NG_NONE}; ///< Whether the variable requires gradients.
   NeedGrad need_grad_state_{
-      NG_NONE};     ///< Updated during graph construction or forward
-                    /// propagation.
-  VariablePtr var_; /// Variable instance.
+      NG_NONE};           ///< Updated during graph construction or forward
+                          /// propagation.
+  bool recompute_{false}; ///< Whether the data is cleared during forward
+                          /// propagation and recomputation is performed during
+  /// backward propagation.
+  VariablePtr var_;               /// Variable instance.
   CgFunctionPtr parent_{nullptr}; ///< Function created this variable.
   int rank_{0};                   ///< Longest path from root variable.
   ///< Holds weak function references. <https://stackoverflow.com/a/22110715>
   unordered_map<CgFunction *,
                 pair<std::weak_ptr<CgFunction>, FunctionReferenceInfo>>
       function_references_;
-  bool allow_modify_data_{true}; ///< Whether the data can be in-placed.
-  bool persistent_{false};       ///<Persistency flag against clearing.
+  size_t function_reference_count_{0}; ///< Number of function references
+  bool allow_modify_data_{true};       ///< Whether the data can be in-placed.
+  bool persistent_{false};             ///<Persistency flag against clearing.
   bool prohibit_clear_data_{false};
   string name_{""};
 
@@ -178,6 +190,14 @@ public:
    */
   inline void unset_need_grad_state() { need_grad_state_ = NG_NONE; }
 
+  /** Get recompute flag.
+   */
+  inline bool recompute() const { return recompute_; }
+
+  /** Set recompute flag.
+   */
+  inline void set_recompute(bool b) { recompute_ = b; }
+
   /** Get prohibit_clear_data_ flag.
    */
   inline bool prohibit_clear_data() { return prohibit_clear_data_; }
@@ -255,6 +275,9 @@ public:
       @param     communicator_callbacks The callback functions invoked when 1)
                  backward computation of each function is finished and
                  2) all backward computation is finished.
+      @param     clear_initial_grad If true, the input parameter, grad, will be
+                 cleared during backward propagation. This flag is only
+                 activated when grad is set.
 
       @seealso set_persistent() to prevent a specific variable to be cleared
                during forward propagation.
@@ -263,7 +286,8 @@ public:
   backward(NdArrayPtr grad = nullptr, bool clear_buffer = false,
            vector<CommunicatorBackwardCallbackPtr> communicator_callbacks = {},
            function_hook_type pre_callback = nullptr,
-           function_hook_type post_callback = nullptr);
+           function_hook_type post_callback = nullptr,
+           const bool clear_initial_grad = false);
 
   /**
   */
@@ -271,9 +295,7 @@ public:
 
   /**
    */
-  inline int function_reference_count() const {
-    return function_references_.size();
-  }
+  size_t function_reference_count() const;
 
   /**
    */
@@ -333,6 +355,7 @@ public:
   void
   visit_function_recursive(CgFunctionPtr func,
                            unordered_set<CgFunctionPtr> &fclosed,
+                           const bool recomputation,
                            std::function<void(CgFunctionPtr)> forward_callback);
 
   /** Execute callback at functions in backward order in a graph.
@@ -345,5 +368,61 @@ public:
 /** shared_ptr typedef of CGVariable
  */
 typedef CgVariable::Ptr CgVariablePtr;
+
+class SingletonManager; // Forward declaration for friend
+
+/** ClearCalledFlagRecorder is a singleton class to record and collect
+ * the SyncedArray::clear_called flags during forward propagation.
+*/
+class ClearCalledFlagRecorder {
+
+  bool is_activated_{false};
+
+  std::vector<std::vector<std::pair<bool, bool>>> recorded_input_clear_flags_;
+  std::vector<std::vector<std::pair<bool, bool>>> recorded_output_clear_flags_;
+
+public:
+  ~ClearCalledFlagRecorder();
+
+  /** Check if this recorder is activated. */
+  bool is_activated();
+
+  /** Activate recording clear flags. */
+  void activate();
+
+  /** Deactivate recording clear flags and delete recorded flags. */
+  void deactivate();
+
+  /** Record clear flags from given function. */
+  void record(const CgFunctionPtr func);
+
+  /** Get recorded clear flags. */
+  std::vector<std::vector<std::pair<bool, bool>>>
+  get_recorded_input_clear_flags() const;
+
+  /** Get recorded clear flags. */
+  std::vector<std::vector<std::pair<bool, bool>>>
+  get_recorded_output_clear_flags() const;
+
+private:
+  friend SingletonManager; // needs forward declaration
+                           // Never called by users.
+  ClearCalledFlagRecorder();
+
+  std::vector<std::pair<bool, bool>>
+  get_variable_clear_called_flag(const std::vector<CgVariablePtr> &vars);
+
+  DISABLE_COPY_AND_ASSIGN(ClearCalledFlagRecorder);
+};
+
+NBLA_API void c_activate_clear_called_flag_recorder();
+
+NBLA_API void c_deactivate_clear_called_flag_recorder();
+
+NBLA_API std::vector<std::vector<std::pair<bool, bool>>>
+c_get_input_clear_called_flags();
+
+NBLA_API std::vector<std::vector<std::pair<bool, bool>>>
+c_get_output_clear_called_flags();
 }
 #endif

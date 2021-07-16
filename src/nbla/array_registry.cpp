@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,6 +24,33 @@ namespace nbla {
 using std::shared_ptr;
 using std::string;
 using std::vector;
+
+// Array group
+ArrayGroup::Registry_t &ArrayGroup::get_registry() {
+  static Registry_t registry_;
+  return registry_;
+}
+
+void ArrayGroup::add_group(const string &array_class,
+                           const string &group_name) {
+  Registry_t &registry = get_registry();
+  registry[array_class] = group_name;
+}
+
+string ArrayGroup::get_group(const string &array_class) {
+  init_cpu();
+  Registry_t &registry = get_registry();
+  try {
+    return registry.at(array_class);
+  } catch (std::out_of_range &) {
+    vector<string> keys;
+    for (auto &kv : registry) {
+      keys.push_back(kv.first);
+    }
+    NBLA_ERROR(error_code::unclassified, "'%s' cannot be found in [%s].",
+               array_class.c_str(), string_join(keys, ", ").c_str());
+  }
+}
 
 // Array Factory
 ArrayCreator::Registry_t &ArrayCreator::get_registry() {
@@ -75,7 +102,8 @@ ArraySynchronizer::Registry_t &ArraySynchronizer::get_registry() {
 }
 
 void ArraySynchronizer::synchronize(const string &src_class, Array *src_array,
-                                    const string &dst_class, Array *dst_array) {
+                                    const string &dst_class, Array *dst_array,
+                                    const int async_flags) {
   init_cpu();
   Registry_t &registry = get_registry();
   pair<string, string> key{src_class, dst_class};
@@ -89,7 +117,8 @@ void ArraySynchronizer::synchronize(const string &src_class, Array *src_array,
                ss << ").";
                return ss.str();
              }().c_str()); // TODO: Display key list that has been registered.
-  registry[key](src_array, dst_array);
+
+  registry[key](src_array, dst_array, async_flags);
 }
 
 void ArraySynchronizer::add_synchronizer(const string &src_class,
@@ -101,5 +130,15 @@ void ArraySynchronizer::add_synchronizer(const string &src_class,
   registry[key] = synchronizer;
 }
 
-void synchronizer_default(Array *src, Array *dst) { dst->copy_from(src); }
+void synchronizer_default(Array *src, Array *dst, const int async_flags) {
+  // Wait for an previous asynchronous memcpy
+  src->wait_event(dst->context(), async_flags);
+
+  if (dst->have_event()) {
+    NBLA_ERROR(error_code::target_specific_async,
+               "Duplicated memcpy to the same destination array");
+  }
+
+  dst->copy_from(src);
+}
 }

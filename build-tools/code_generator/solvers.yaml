@@ -18,7 +18,8 @@ SgdW:
     Stochastic gradient descent (SGD) optimizer with decoupled weight decay.
 
     .. math::
-        w_{t+1} \leftarrow w_t - \eta \Delta w_t - (\eta / \eta_0)\lambda\w_t
+        v_t \leftarrow \gamma v_{t-1} + \eta g_t - (\eta / \eta_0)\lambda v_{t-1}\\
+        w_{t+1} \leftarrow w_t - v_t
 
     where :math:`\lambda` is the decoupled weight decay rate.
 
@@ -26,7 +27,6 @@ SgdW:
     - |
       `Loshchilov and Hutter, Decoupled Weight Decay Regularization.
       <https://arxiv.org/abs/1711.05101>`_
-
 
   arguments:
     lr:
@@ -125,7 +125,7 @@ Nesterov:
       type: float
       default: 0.9
       doc: Decay rate of momentum.
-              
+
 Adadelta:
   snake_name: adadelta
   doc: |
@@ -182,7 +182,63 @@ Adagrad:
       type: float
       default: 1e-8
       doc: Small value for avoiding zero division(:math:`\epsilon`).
-  
+
+AdaBelief:
+  snake_name: adabelief
+  doc: |
+    AdaBelief optimizer.
+
+    .. math::
+        m_t &\leftarrow \beta_1 m_{t-1} + (1 - \beta_1) g_t\\
+        s_t &\leftarrow \beta_2 s_{t-1} + (1 - \beta_2) (g_t - m_t)^2\\
+        w_{t+1} &\leftarrow w_t - \alpha
+            \frac{\sqrt{1 - \beta_2^t}}{1 - \beta_1^t}
+            \frac{m_t}{\sqrt{s_t + \epsilon} + \epsilon}
+
+  references:
+    - |
+      `Juntang Zhuang, et al. (2020).
+      AdaBelief Optimizer: Adapting Stepsizes by the Belief in Observed Gradients.
+      <https://arxiv.org/pdf/2010.07468.pdf>`_
+
+  arguments:
+    alpha:
+      type: float
+      default: 1e-3
+      doc: Step size (:math:`\alpha`).
+    beta1:
+      type: float
+      default: 0.9
+      doc: Decay rate of first-order momentum (:math:`\beta_1`).
+    beta2:
+      type: float
+      default: 0.999
+      doc: Decay rate of second-order momentum (:math:`\beta_2`).
+    eps:
+      type: float
+      default: 1e-8
+      doc: Small value for avoiding zero division(:math:`\epsilon`).
+    wd:
+      type: float
+      default: 0.0
+      doc: Weight decay rate. This option only takes effect when weight_decouple option is enabled.
+    amsgrad:
+      type: bool
+      default: False
+      doc: Perform AMSGrad variant of AdaBelief.
+    weight_decouple:
+      type: bool
+      default: False
+      doc: Perform decoupled weight decay as in AdamW.
+    fixed_decay:
+      type: bool
+      default: False
+      doc: If True, the weight decay ratio will be kept fixed. Note that this option only takes effect when weight_decouple option is enabled.
+    rectify:
+      type: bool
+      default: False
+      doc: Perform RAdam variant of AdaBelief.
+
 RMSprop:
   snake_name: rmsprop
   doc: |
@@ -212,7 +268,44 @@ RMSprop:
       type: float
       default: 1e-8
       doc: Small value for avoiding zero division(:math:`\epsilon`).
-              
+
+RMSpropGraves:
+  snake_name: rmsprop_graves
+  doc: |
+    RMSpropGraves optimizer (Alex Graves).
+
+    .. math::
+        n_t &\leftarrow \rho n_{t-1} + \left(1 - \rho \right) {e_t}^2\\
+        g_t &\leftarrow \rho g_{t-1} + \left(1 - \rho \right) e_t\\
+        d_t &\leftarrow \beta d_{t-1} - \eta \frac{e_t}{\sqrt{n_t - {g_t}^2 + \epsilon}}\\
+        w_{t+1} &\leftarrow w_t + d_t
+
+    where :math:`e_t` denotes the gradient.
+
+  references:
+    - |
+      `Alex Graves.
+      Generating Sequences With Recurrent Neural Networks.
+      <http://arxiv.org/pdf/1308.0850v5.pdf>`_
+
+  arguments:
+    lr:
+      type: float
+      default: 1e-4
+      doc: Learning rate (:math:`\eta`).
+    decay:
+      type: float
+      default: 0.95
+      doc: Decay rate (:math:`\rho`).
+    momentum:
+      type: float
+      default: 0.9
+      doc: Momentum (:math:`\beta`)
+    eps:
+      type: float
+      default: 1e-4
+      doc: Small value for avoiding zero division(:math:`\epsilon`).
+
 Adam:
   snake_name: adam
   doc: |
@@ -261,7 +354,7 @@ AdamW:
         v_t &\leftarrow \beta_2 v_{t-1} + (1 - \beta_2) g_t^2\\
         w_{t+1} &\leftarrow w_t - \alpha
             \frac{\sqrt{1 - \beta_2^t}}{1 - \beta_1^t}
-            \frac{m_t}{\sqrt{v_t} + \epsilon} - \eta_t\lambda\w_{t-1}
+            \frac{m_t}{\sqrt{v_t} + \epsilon} - \eta_t\lambda w_t
 
     where :math:`g_t` denotes a gradient, :math:`\lambda` is the decoupled weight decay rate,
     and :math:`m_0 \leftarrow 0` and :math:`v_0 \leftarrow 0`.
@@ -292,7 +385,6 @@ AdamW:
       type: float
       default: 1e-4
       doc: Weight decay rate.
-
 
 AdaBound:
   snake_name: adabound
@@ -376,7 +468,7 @@ Adamax:
       type: float
       default: 1e-8
       doc: Small value for avoiding zero division(:math:`\epsilon`).
-  
+
 AMSGRAD:
   snake_name: amsgrad
   doc: |

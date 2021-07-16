@@ -1,6 +1,6 @@
 # Neural Network Libraries
 
-Neural Network Libraries is a deep learning framework that is intended to be used for research,
+[Neural Network Libraries](https://arxiv.org/abs/2102.06725) is a deep learning framework that is intended to be used for research,
 development and production. We aim to have it running everywhere: desktop PCs, HPC
 clusters, embedded devices and production servers.
 
@@ -8,6 +8,7 @@ clusters, embedded devices and production servers.
 * [Neural Network Libraries - CUDA extension](https://github.com/sony/nnabla-ext-cuda): An extension library of Neural Network Libraries that allows users to speed-up the computation on CUDA-capable GPUs.
 * [Neural Network Libraries - Examples](https://github.com/sony/nnabla-examples): Working examples of Neural Network Libraries from basic to state-of-the-art.
 * [Neural Network Libraries - C Runtime](https://github.com/sony/nnabla-c-runtime):  Runtime library for inference Neural Network created by Neural Network Libraries.
+* [Neural Network Libraries - NAS](https://github.com/sony/nnabla-nas):  Hardware-aware Neural Architecture Search (NAS) for Neural Network Libraries.
 * [Neural Network Console](https://dl.sony.com/): A Windows GUI app for neural network development.
 
 
@@ -108,6 +109,32 @@ with nn.auto_forward():
 loss.backward()
 ```
 
+You can differentiate to any order with nn.grad.
+
+```python
+import nnabla as nn
+import nnabla.functions as F
+import numpy as np
+
+x = nn.Variable.from_numpy_array(np.random.randn(2, 2)).apply(need_grad=True)
+x.grad.zero()
+y = F.sin(x)
+def grad(y, x, n=1):
+    dx = [y]
+    for _ in range(n):
+        dx = nn.grad([dx[0]], [x])
+    return dx[0]
+dnx = grad(y, x, n=10)
+dnx.forward()
+print(np.allclose(-np.sin(x.d), dnx.d))
+dnx.backward()
+print(np.allclose(-np.cos(x.d), x.g))
+
+# Show the registry status
+from nnabla.backward_functions import show_registry
+show_registry()
+```
+
 ### Command line utility
 
 Neural Network Libraries provides a command line utility `nnabla_cli` for easier use of NNL.
@@ -166,3 +193,22 @@ Also, you can add new features very easy by the help of our code template genera
 See the following link for details.
 
 * [Contribution guide](CONTRIBUTING.md)
+
+## License & Notice
+
+Neural Network Libraries is provided under the [Apache License Version 2.0](LICENSE) license.
+
+It also depends on some open source software packages. For more information, see [LICENSES](third_party/LICENSES.md).
+
+## Citation
+
+```
+@misc{hayakawa2021neural,
+      title={Neural Network Libraries: A Deep Learning Framework Designed from Engineers' Perspectives}, 
+      author={Akio Hayakawa and Masato Ishii and Yoshiyuki Kobayashi and Akira Nakamura and Takuya Narihira and Yukio Obuchi and Andrew Shin and Takuya Yashima and Kazuki Yoshiyama},
+      year={2021},
+      eprint={2102.06725},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG}
+}
+```

@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -121,7 +121,11 @@ bool nbla_train_core(nbla::Context ctx, int argc, char *argv[]) {
     fprintf(stdout, "\n");
   }
 
+#ifdef NBLA_UTILS_WITH_HDF5
+  string parameter_file = result_dir + "/parameters.h5";
+#else
   string parameter_file = result_dir + "/parameters.protobuf";
+#endif
   if (!nnp.save_parameters(parameter_file.c_str())) {
     return false;
   }

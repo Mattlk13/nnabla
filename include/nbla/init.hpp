@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,6 +37,12 @@ NBLA_API void init_cpu();
    Clear CPU memory cache.
  */
 NBLA_API void clear_cpu_memory_cache();
+
+/**
+ * Print CPU memory cache map.
+ */
+
+NBLA_API void print_cpu_memory_cache_map();
 
 /** Get CPU array classes.
 */

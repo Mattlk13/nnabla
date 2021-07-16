@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +17,7 @@
  */
 #include <nbla/array.hpp>
 #include <nbla/function/inq_convolution.hpp>
+#include <nbla/random_manager.hpp>
 #include <nbla/variable.hpp>
 
 #include <algorithm>
@@ -38,7 +40,7 @@ void INQConvolution<T, T1>::setup_impl(const Variables &inputs,
              "Indicators and weights must have same size. "
              "Ndim of weights: %d != ndim of indicators: %d.",
              inputs[1]->shape().size(), inputs[2]->shape().size());
-  for (int i = 0; i < inputs[1]->shape().size(); ++i) {
+  for (Shape_t::size_type i = 0; i < inputs[1]->shape().size(); ++i) {
     NBLA_CHECK(inputs[1]->shape()[i] == inputs[2]->shape()[i],
                error_code::value,
                "Indicators and weights must have same size. "
@@ -137,9 +139,13 @@ void INQConvolution<T, T1>::forward_impl(const Variables &inputs,
         }
       } else {
         // random selection
+        std::mt19937 &rgen =
+            seed_ == -1
+                ? SingletonManager::get<RandomManager>()->get_rand_generator()
+                : rgen_;
         for (int i = 0; i < inputs[1]->size(); ++i) {
           if (indicators[i] == 0) {
-            indicators[i] = rdist_(rgen_);
+            indicators[i] = rdist_(rgen);
           }
         }
       }
@@ -198,6 +204,18 @@ void INQConvolution<T, T1>::forward_impl(const Variables &inputs,
   // F: Store weights/indicators
   memcpy((void *)old_weights, weights, inputs[1]->size() * sizeof(T));
   memcpy((void *)old_indicators, indicators, inputs[1]->size() * sizeof(T1));
+}
+
+template <typename T, typename T1>
+void INQConvolution<T, T1>::recompute_impl(const Variables &inputs,
+                                           const Variables &outputs) {
+  // Just exec convolution with inputs which prepared in previous forward
+  // execution.
+  if (inputs.size() == 4) { // with bias
+    convolution_->forward(Variables{inputs[0], inputs[1], inputs[3]}, outputs);
+  } else {
+    convolution_->forward(Variables{inputs[0], inputs[1]}, outputs);
+  }
 }
 
 template <typename T, typename T1>

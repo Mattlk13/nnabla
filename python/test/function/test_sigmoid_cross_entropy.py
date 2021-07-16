@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,7 +45,6 @@ def test_sigmoid_cross_entropy_double_backward(seed, ctx, func_name):
         np.float32), rng.rand(2, 3, 4).astype(np.float32)]
     inputs[1] = np.round(inputs[1])
     backward_function_tester(rng, F.sigmoid_cross_entropy,
-                             None,
                              inputs,
-                             atol_b=1e-2, atol_accum=1e-2, dstep=1e-3,
-                             ctx=ctx, func_name=func_name, backward=[True, False])
+                             atol_accum=1e-2, dstep=1e-3,
+                             ctx=ctx, backward=[True, False])

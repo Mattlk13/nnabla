@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,8 +44,14 @@ nnabla-auto-format:
 		'\./python/src/nnabla/(solver.pyx|function.pyx|function.pxd|function_bases.py)' \
 		'\./python/src/nnabla/utils/(save|load)_function.py' \
 		'\./src/nbla_utils/nnp_impl_create_function.cpp' \
-		'\./src/nbla_utils/nnabla\.pb\.(h|cc)'
+		'\./src/nbla_utils/nnabla\.pb\.(h|cc)' \
+		'\./include/third_party/.*'
 
+########################################################################################################################
+# check copyright
+.PHONY: nnabla-copyright-check
+nnabla-check-copyright:
+	python3 $(NNABLA_DIRECTORY)/build-tools/code_formatter/copyright_checker.py --rootdir=$(NNABLA_DIRECTORY)
 
 ########################################################################################################################
 # Doc
@@ -142,7 +149,7 @@ nnabla-wheel-dependencies:
 		then \
 			cp -v $$whl $(BUILD_DIRECTORY_WHEEL)/dependencies/;\
 		fi; \
-	done	
+	done
 
 .PHONY: nnabla-install-cpplib
 nnabla-install-cpplib:
@@ -151,7 +158,20 @@ nnabla-install-cpplib:
 .PHONY: nnabla-install
 nnabla-install:
 	-pip uninstall -y nnabla
-	pip install $(BUILD_DIRECTORY_WHEEL)/dist/*.whl
+	whl='$(shell find $(BUILD_DIRECTORY_WHEEL)/dist/ -type f -name nnabla$(shell echo $(WHEEL_SUFFIX) | sed -e 's/-/_/g')-*.whl)'; \
+	if [ ! -z $$whl ] && [ -f $$whl ];\
+	then \
+	    pip install ${PIP_INS_OPTS} $$whl; \
+	fi;
+
+.PHONY: nnabla-converter-install
+nnabla-converter-install:
+	-pip uninstall -y nnabla-converter
+	whl='$(shell find $(BUILD_DIRECTORY_WHEEL)/dist/ -type f -name nnabla_converter-*.whl)'; \
+	if [ ! -z $$whl ] && [ -f $$whl ];\
+	then \
+	    pip install ${PIP_INS_OPTS} $$whl; \
+	fi;
 
 ########################################################################################################################
 # Shell (for rapid development)
@@ -164,7 +184,9 @@ nnabla-shell:
 .PHONY: nnabla-test-cpplib
 nnabla-test-cpplib: nnabla-cpplib
 	@$(MAKE) -C $(BUILD_DIRECTORY_CPPLIB) cpplibtest
+	@$(MAKE) -C $(BUILD_DIRECTORY_CPPLIB) test_nbla_utils
 	@bash -c "(cd $(BUILD_DIRECTORY_CPPLIB) && ctest -R cpplibtest --output-on-failure)"
+	# Do not test test_nbla_utils here, since it depends on data preparation.
 
 .PHONY: nnabla-test
 nnabla-test:
@@ -173,8 +195,10 @@ nnabla-test:
 			-f build-tools/make/build.mk, nnabla-test-local)
 
 .PHONY: nnabla-test-local
-nnabla-test-local: nnabla-install
+nnabla-test-local: nnabla-install nnabla-converter-install
 	@cd $(BUILD_DIRECTORY_WHEEL) \
 	&& PATH=$(PYTEST_PATH_EXTRA):$(PATH) \
 	LD_LIBRARY_PATH=$(PYTEST_LD_LIBRARY_PATH_EXTRA):$(LD_LIBRARY_PATH) \
 	$(NNABLA_DIRECTORY)/build-tools/make/pytest.sh $(NNABLA_DIRECTORY)/python/test
+	@python -m pytest $(NNABLA_DIRECTORY)/src/nbla_utils/test
+	$(NNABLA_DIRECTORY)/build-tools/make/test_nbla_utils.sh

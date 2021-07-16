@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,8 +23,8 @@ from nnabla.function import PythonFunction
 
 class Add2(PythonFunction):
 
-    def __init__(self):
-        pass
+    def __init__(self, ctx=None):
+        super(Add2, self).__init__(ctx)
 
     @property
     def name(self):
@@ -31,6 +32,12 @@ class Add2(PythonFunction):
 
     def min_outputs(self):
         return 1
+
+    def grad_depends_output_data(self, i, o):
+        return False
+
+    def grad_depends_input_data(self, i, j):
+        return False
 
     def setup_impl(self, inputs, outputs):
         outputs[0].reset_shape(inputs[0].shape, True)

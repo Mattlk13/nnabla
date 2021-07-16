@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -89,6 +90,13 @@ public:
    */
   NBLA_API AllocatorMemory(shared_ptr<Memory> memory,
                            shared_ptr<Allocator> allocator);
+
+  /** Constructor.
+
+      This is called to create an epmpty instance.
+  */
+  NBLA_API AllocatorMemory();
+
   /** Destructor returns a Memory instance given at a constructor to an
       allocator.
    */
@@ -119,7 +127,13 @@ protected:
       callback_; ///< Callback could be set in a derived class.
   unordered_map<string, size_t> device_memory_used_in_bytes_;
 
+  std::mutex mutex_;
+
 public:
+  typedef unordered_map<string, int> MemCountMap;
+
+  std::function<void(void)> callback_tmp_ = nullptr;
+
   /** Constructor does nothing.
    */
   Allocator();
@@ -182,6 +196,18 @@ public:
    */
   virtual ~Allocator();
 
+  /** APIs for memory cache analysis
+   */
+  void print_memory_cache_map() { print_memory_cache_map_impl(); }
+
+  virtual size_t get_fragmentation_bytes(const string &device_id) { return 0; }
+
+  virtual size_t get_max_available_bytes(const string &device_id) { return 0; }
+
+  virtual vector<int> get_used_memory_counts(const string &device_id) {
+    return {};
+  }
+
 protected:
   /** Call mem's Memory::alloc with retry.
 
@@ -232,6 +258,8 @@ protected:
 
    */
   virtual size_t free_unused_device_caches_impl(const string &device_id) = 0;
+
+  virtual void print_memory_cache_map_impl(){};
 
   DISABLE_COPY_AND_ASSIGN(Allocator);
 };

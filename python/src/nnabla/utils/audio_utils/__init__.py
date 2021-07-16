@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -96,7 +97,7 @@ def auread(path, channel_first=False, raw_format_param=None,
     Default output shape is (samples, channels).
 
     Args:
-        path (String or File Object): Input audio path.
+        path (String, File Object, BytesIO): Input audio source.
         channel_first (bool): If True, the shape of the output array is (channels, samples)
                               for audio. Default is False.
         raw_format_param(object): "raw" files require 3 additional keyword arguments ->
@@ -116,7 +117,9 @@ def auread(path, channel_first=False, raw_format_param=None,
          numpy.ndarray
     """
 
-    return backend_manager.module.auread(path, channel_first=channel_first, raw_format_param=None,
+    from nnabla.utils.data_source_loader import ResourceFileReader
+    source = ResourceFileReader(path)
+    return backend_manager.module.auread(source, channel_first=channel_first, raw_format_param=None,
                                          **kwargs)
 
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -66,7 +66,7 @@ void CgFunction::check_data_inplace(int i, CgVariablePtr input,
   auto f = this->function();
   // Always not allow modifying data if grad depends the output data.
   if (input->need_grad_state()) {
-    for (int o = 0; o < outputs.size(); ++o) {
+    for (vector<CgVariablePtr>::size_type o = 0; o < outputs.size(); ++o) {
       // If function gradient computation at i-th variable depends on o-th
       // output data, inplacing o-th variable data is prohibited.
       if (f->grad_depends_output_data(i, o)) {
@@ -94,42 +94,20 @@ void CgFunction::check_data_inplace(int i, CgVariablePtr input,
   }
 }
 
-void CgFunction::check_grad_inplace(int i, CgVariablePtr input) {
-  if (!input->need_grad_state()) {
-    return;
-  }
-  auto f = this->function();
-  int inplace_level = f->inplace_grad(i);
-  if (inplace_level == Function::INPLACE) {
-    NBLA_CHECK(input->parent(), error_code::value,
-               "A grad array of a root variable in a graph cannot be "
-               "in-placed (%d-th input of '%s').",
-               i, f->name().c_str());
-  }
-  if (inplace_level >= Function::INPLACE_NOT_MODIFY) {
-    NBLA_CHECK(input->function_reference_count() < 2, error_code::value,
-               "In-placing grad at a variable which branches"
-               " is prohibited. %d-th input "
-               "grad of `%s` (depth=%d) is inplaced.",
-               i, f->name().c_str(), this->rank());
-  }
-}
-
 void CgFunction::verify_during_forward() {
   for (auto o : this->outputs()) {
     o->set_allow_modify_data(true);
   }
   auto inputs = this->inputs();
   auto outputs = this->outputs();
-  for (int i = 0; i < inputs.size(); ++i) {
+  for (vector<CgVariablePtr>::size_type i = 0; i < inputs.size(); ++i) {
     this->check_data_inplace(i, inputs[i], outputs);
-    this->check_grad_inplace(i, inputs[i]);
   }
 }
 
 void CgFunction::set_outputs(const vector<CgVariablePtr> &outputs) {
   outputs_.resize(outputs.size());
-  for (int i = 0; i < outputs.size(); ++i) {
+  for (vector<CgVariablePtr>::size_type i = 0; i < outputs.size(); ++i) {
     outputs[i]->set_rank_(rank_ + 1);
     outputs_[i].set(outputs[i]);
   }
@@ -137,7 +115,7 @@ void CgFunction::set_outputs(const vector<CgVariablePtr> &outputs) {
 
 vector<CgVariablePtr> CgFunction::outputs() {
   vector<CgVariablePtr> outputs(outputs_.size());
-  for (int i = 0; i < outputs_.size(); ++i) {
+  for (vector<CgVariablePtr>::size_type i = 0; i < outputs_.size(); ++i) {
     outputs[i] = outputs_[i].get();
   }
   return outputs;
@@ -145,7 +123,7 @@ vector<CgVariablePtr> CgFunction::outputs() {
 
 vector<Variable *> CgFunction::function_inputs() {
   vector<Variable *> ret(inputs_.size());
-  for (int i = 0; i < inputs_.size(); ++i) {
+  for (vector<CgVariablePtr>::size_type i = 0; i < inputs_.size(); ++i) {
     ret[i] = inputs_[i]->variable().get();
   }
   return ret;

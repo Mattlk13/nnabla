@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -134,23 +134,30 @@ def _forward(args, index, config, data, variables, output_image=True):
 
         # Generate data
         for v, generator in e.generator_assign.items():
-            v.variable_instance.d = generator(v.shape)
+            v.variable_instance.d = generator(v.variable_instance.d.shape)
 
         # Forward recursive
-        sum = [np.zeros(o.shape, dtype=o.variable_instance.d.dtype)
+        sum = [np.zeros(o.variable_instance.d.shape, dtype=o.variable_instance.d.dtype)
                for o in e.output_assign.keys()]
+        sum_mux = [np.zeros(o.variable_instance.d.shape, dtype=o.variable_instance.d.dtype)
+                   for o in e.output_assign.keys()]
         for i in range(e.num_evaluations):
-            e.network.forward(e.forward_sequence)
+            e.forward_target.forward(clear_buffer=True)
             if e.need_back_propagation:
-                e.network.backward(e.backward_sequence)
+                e.backward_target.backward(clear_buffer=True)
 
             for o_index, o in enumerate(e.output_assign.keys()):
                 if e.repeat_evaluation_type == "last":
                     sum[o_index] = o.variable_instance.d
                 else:
                     sum[o_index] += o.variable_instance.d
+                    sum_mux[o_index] += (o.variable_instance.d)**2
         if e.repeat_evaluation_type == "last":
             avg = sum
+        elif e.repeat_evaluation_type == "std":
+            std_result = [np.nan_to_num(np.sqrt(
+                x / e.num_evaluations - (y / e.num_evaluations)**2)) for x, y in zip(sum_mux, sum)]
+            avg = std_result
         else:
             avg = [s / e.num_evaluations for s in sum]
 
@@ -216,7 +223,7 @@ def forward_command(args):
 
         # load dataset as csv
         filereader = FileReader(args.dataset)
-        with filereader.open(textmode=True) as f:
+        with filereader.open(textmode=True, encoding='utf-8-sig') as f:
             rows = [row for row in csv.reader(f)]
         row0 = rows.pop(0)
         if args.replace_path:
@@ -225,8 +232,8 @@ def forward_command(args):
         else:
             root_path = '.'
         rows = [row for row in rows if len(row)]
-        rows = list(map(lambda row: list(map(lambda x: x if is_float(
-            x) else compute_full_path(root_path, x), row)), rows))
+        rows = list(map(lambda row: list(map(lambda i, x: x if row0[i][0] == '#' or is_float(
+            x) else compute_full_path(root_path, x), range(len(row)), row)), rows))
         for i in range(len(rows)):
             orders[i] = i
     # With Cache
@@ -242,7 +249,7 @@ def forward_command(args):
         try:
             # load dataset as csv
             filereader = FileReader(original_csv)
-            with filereader.open(textmode=True) as f:
+            with filereader.open(textmode=True, encoding='utf-8-sig') as f:
                 rows = [row for row in csv.reader(f)]
             row0 = rows.pop(0)
             root_path = '.'
@@ -272,7 +279,7 @@ def forward_command(args):
     callback.update_status('processing', True)
 
     result_csv_filename = os.path.join(args.outdir, args.outfile)
-    with open(result_csv_filename, 'w') as f:
+    with open(result_csv_filename, 'w', encoding='utf-8') as f:
         writer = csv.writer(f, lineterminator='\n')
         with data_iterator() as di:
             index = 0
@@ -283,6 +290,8 @@ def forward_command(args):
                 if index == 0:
                     for name, dim in zip(result.names, result.dims):
                         if dim == 1:
+                            if e.repeat_evaluation_type == "std":
+                                name = "Uncertainty(Std)"
                             row0.append(name)
                         else:
                             for d in range(dim):
@@ -317,6 +326,49 @@ def forward_command(args):
     return True
 
 
+def infer(info, input_data):
+    class tmp:
+        pass
+    args = tmp
+    tmp.outdir = ''
+    tmp.result_outdir = ''
+
+    class ForwardConfig:
+        pass
+    config = ForwardConfig
+
+    config.executors = info.executors.values()
+    config.networks = []
+
+    for e in config.executors:
+        if e.network.name in info.networks.keys():
+            config.networks.append(info.networks[e.network.name])
+        else:
+            logger.critical('Network {} is not found.'.format(
+                config.executor.network.name))
+            return False
+
+    normalize = True
+    for d in info.datasets.values():
+        normalize = d.normalize
+
+    input_file_index = 0
+    inputs = []
+    for e in config.executors:
+        for v, d in e.dataset_assign.items():
+            data = input_data[input_file_index].reshape(
+                v.variable_instance.d.shape)
+            inputs.append((d, data))
+            input_file_index += 1
+    data = []
+    variables = []
+    for v, d in inputs:
+        variables.append(v)
+        data.append(d)
+
+    return _forward(tmp, 0, config, data, variables, False)
+
+
 def infer_command(args):
     files = []
     files.append(args.config)
@@ -334,40 +386,25 @@ def infer_command(args):
     os.environ['NNABLA_CUDNN_ALGORITHM_BY_HEURISTIC'] = '1'
     info = load.load(files, prepare_data_iterator=False, batch_size=batch_size)
 
-    config.executors = info.executors.values()
-
-    config.networks = []
-    for e in config.executors:
-        if e.network.name in info.networks.keys():
-            config.networks.append(info.networks[e.network.name])
+    inputs = []
+    for input_filename in args.inputs:
+        if args.data_type == 'uint8':
+            inputs.append(np.fromfile(input_filename, np.uint8))
+        elif args.data_type == 'int32':
+            inputs.append(np.fromfile(input_filename, np.int32))
+        elif args.data_type == 'float32':
+            if 'int32' in input_filename:
+                inputs.append(np.fromfile(input_filename, np.int32))
+            elif 'uint8' in input_filename:
+                inputs.append(np.fromfile(input_filename, np.uint8))
+            else:
+                inputs.append(np.fromfile(input_filename, np.float32))
         else:
-            logger.critical('Network {} is not found.'.format(
-                config.executor.network.name))
+            logger.critical('Type is one of ("uint8", "int32" or "float32").')
             return False
 
-    normalize = True
-    for d in info.datasets.values():
-        normalize = d.normalize
+    result, outputs = infer(info, inputs)
 
-    input_file_index = 0
-    inputs = []
-    for e in config.executors:
-        for v, d in e.dataset_assign.items():
-            input_filename = args.inputs[input_file_index]
-            if "int32" in input_filename:
-                data = np.fromfile(input_filename, np.int32).reshape(
-                    v.variable_instance.d.shape)
-            else:
-                data = np.fromfile(input_filename, np.float32).reshape(
-                    v.variable_instance.d.shape)
-            inputs.append((d, data))
-            input_file_index += 1
-    data = []
-    variables = []
-    for v, d in inputs:
-        variables.append(v)
-        data.append(d)
-    result, outputs = _forward(args, 0, config, data, variables, False)
     for i, o in enumerate(outputs):
         if args.output is not None:
             (np.array(o).astype(np.float32)).tofile(
@@ -384,9 +421,9 @@ def add_infer_command(subparsers):
     subparser.add_argument(
         '-o', '--output', help='output file prefix', required=False)
     subparser.add_argument(
-        '--result_outdir', help='output result directory', type=str, default='')
-    subparser.add_argument(
         '-p', '--param', help='path to parameter file', required=False)
+    subparser.add_argument(
+        '-t', '--data_type', help='Parameter type (uint8, int32 or float32)', default='float32', required=False)
     subparser.add_argument(
         '-b', '--batch_size',
         help='Batch size to use batch size in nnp file set -1.',

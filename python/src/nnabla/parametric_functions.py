@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +21,8 @@ import nnabla.functions as F
 from nnabla.parameter import get_parameter_or_create, get_parameter
 from nnabla.initializer import (
     calc_uniform_lim_glorot,
-    ConstantInitializer, NormalInitializer, UniformInitializer)
+    ConstantInitializer, NormalInitializer, UniformInitializer,
+    WeightNormalizationScaleInitializer)
 
 
 def parametric_function_api(scope_name=None, param_desc=None):
@@ -1185,6 +1187,71 @@ def inq_convolution(inp, outmaps, kernel,
         b = get_parameter_or_create(
             "b", (outmaps,), b_init, True, not fix_parameters)
     return F.inq_convolution(inp, w, i, b, base_axis, pad, stride, dilation, group, num_bits, inq_iterations, selection_algorithm, seed)
+
+
+@parametric_function_api("deformable_conv", [
+    ('W', 'Filter weights', '(outmaps, inmaps // group, *kernel)', True),
+    ('b', 'Bias vector', '(outmaps,)', True),
+])
+def deformable_convolution(inp, outmaps, kernel, offset, mask=None,
+                           pad=None, stride=None, dilation=None, group=1, deformable_group=1, channel_last=False,
+                           w_init=None, b_init=None,
+                           base_axis=1, fix_parameters=False, rng=None, with_bias=True,
+                           apply_w=None, apply_b=None):
+    """2D Deformable Convolution with a bias term. If use mask, this function is Deformable Convolution v2.
+
+    - Dai et al., Deformable Convolutional Networks. https://arxiv.org/abs/1703.06211
+    - Zhu et al., Deformable ConvNets v2: More Deformable, Better Results. https://arxiv.org/abs/1811.11168
+
+
+    Args:
+        inp (~nnabla.Variable): N-D array.
+        outmaps (int): Number of convolution kernels (which is equal to the number of output channels). For example, to apply convolution on an input with 16 types of filters, specify 16.
+        kernel (:obj:`tuple` of :obj:`int`): Convolution kernel size. For example, to apply convolution on an image with a 3 (height) by 5 (width) two-dimensional kernel, specify (3,5).
+        offset (~nnabla.Variable): Offsets for deformable convolutions. Shape is fixed to :math:`(N, deformable_group \times 2 \times Kh \times Kw, H, W)`. Offsets must be calculated externally through a separate convolution layer.
+        mask (~nnabla.Variable): Normalized mask for deformable convolutions v2. Shape is fixed to :math:`(N, deformable_group \times 1 \times Kh \times Kw, H, W)`. Masks must be calculated externally together with the offsets through a separate convolution layer.
+        pad (:obj:`tuple` of :obj:`int`): Padding sizes for dimensions.
+        stride (:obj:`tuple` of :obj:`int`): Stride sizes for dimensions.
+        dilation (:obj:`tuple` of :obj:`int`): Dilation sizes for dimensions.
+        group (int): Number of groups of channels. This makes connections across channels more sparse by grouping connections along map direction.
+        deformable_group (int): Number of deformable groups of channels. This makes connections across channels more sparse by grouping connections along map direction.
+        channel_last (bool): If True, the last dimension is considered as channel dimension, a.k.a. NHWC order.
+        w_init (:obj:`nnabla.initializer.BaseInitializer` or :obj:`numpy.ndarray`): Initializer for weight. By default, it is initialized with :obj:`nnabla.initializer.UniformInitializer` within the range determined by :obj:`nnabla.initializer.calc_uniform_lim_glorot`.
+        b_init (:obj:`nnabla.initializer.BaseInitializer` or :obj:`numpy.ndarray`): Initializer for bias. By default, it is initialized with zeros if `with_bias` is `True`.
+        base_axis (int): Dimensions up to `base_axis` are treated as the sample dimensions.
+        fix_parameters (bool): When set to `True`, the weights and biases will not be updated.
+        rng (numpy.random.RandomState): Random generator for Initializer.
+        with_bias (bool): Specify whether to include the bias term.
+        apply_w (function): Lambda, function, or callable object applied to the weights.
+        apply_b (function): Lambda, function, or callable object applied to the bias.
+
+    Returns:
+        :class:`~nnabla.Variable`: N-D array. See :obj:`~nnabla.functions.convolution` for the output shape.
+
+    """
+    if channel_last:
+        channels = inp.shape[-1]
+        filter_shape = tuple(kernel) + (channels // group,)
+    else:
+        channels = inp.shape[base_axis]
+        filter_shape = (channels // group,) + tuple(kernel)
+    if w_init is None:
+        w_init = UniformInitializer(
+            calc_uniform_lim_glorot(channels, outmaps, tuple(kernel)), rng=rng)
+    if with_bias and b_init is None:
+        b_init = ConstantInitializer()
+    w = get_parameter_or_create(
+        "W", (outmaps,) + filter_shape,
+        w_init, True, not fix_parameters)
+    if apply_w is not None:
+        w = apply_w(w)
+    b = None
+    if with_bias:
+        b = get_parameter_or_create(
+            "b", (outmaps,), b_init, True, not fix_parameters)
+        if apply_b is not None:
+            b = apply_b(b)
+    return F.deformable_convolution(inp, w, offset, mask, b, base_axis, pad, stride, dilation, group, deformable_group, channel_last)
 
 
 @parametric_function_api("depthwise_conv", [
@@ -3439,10 +3506,75 @@ class LSTMCell:
 
 
 @parametric_function_api("spectral-norm", [
-    ('W_sn', 'Spectral Normalized Weight matrix', 'w.shape', False),
     ('u', 'singular vector', '(w.shape[dim], )', False),
 ])
 def spectral_norm(w, dim=0, itr=1, eps=1e-12, test=False, u_init=None, fix_parameters=True):
+    """Spectral Normalization.
+
+    .. math::
+
+        W_{sn} = \\frac{W}{\\sigma(W)}.
+
+    where :math:`W` is the input matrix, and the :math:`\\sigma(W)` is the spectral norm of :math:`W`. The spectral norm is approximately computed by the power iteration.
+
+    References:
+
+        Takeru Miyato, Toshiki Kataoka, Masanori Koyama, Yuichi Yoshida, 
+        "Spectral Normalization for Generative Adversarial Networks", 
+        International Conference on Learning Representations. 2018.
+
+    Args:
+        W (~nnabla.Variable): Input N-D array with shape. This is normally network parameter.
+        dim (`int`): Output dimension. Default is 0. If the dimension is not 0, then the specified dimension becomes the most-left dimension by transposing.
+        itr (`int`): Number of iterations. Default is 1.
+        eps (`float`): Epsilon for the normalization. Default is 1e-12.
+        test (`bool`): Use test mode. Default is False.
+
+    Returns:
+        ~nnabla.Variable: Spectrally normalized :math:`W_{sn}` with the same shape as :math:`W`.
+
+    Example:
+
+        .. code-block:: python
+
+            import nnabla as nn
+            import nnabla.parametric_functions as PF
+
+            b, c, h, w = 4, 64, 32, 32
+
+            # Spectrally normalized convolution
+            apply_w = lambda w: PF.spectral_norm(w, dim=0)
+            h = nn.Variable.from_numpy_array(np.random.randn(b, c, h, w))
+            h = PF.convolution(h, with_bias=False, apply_w=apply_w)
+
+            # Spectrally normalized affine
+            apply_w = lambda w: PF.spectral_norm(w, dim=1)
+            h = nn.Variable.from_numpy_array(np.random.randn(b, c))
+            h = PF.affine(h, with_bias=False, apply_w=apply_w)
+
+            # Spectrally normalized embed
+            apply_w = lambda w: PF.spectral_norm(w, dim=1)
+            h = nn.Variable.from_numpy_array(np.random.randn(b, c))
+            h = PF.embed(h, c, apply_w=apply_w)
+
+    """
+
+    assert (0 <= dim < len(w.shape)
+            ), "`dim` must be `0 <= dim and dim < len(w.shape)`."
+
+    if u_init is None:
+        u_init = NormalInitializer()
+    u_shape = (w.shape[dim],)
+    u = get_parameter_or_create("u", u_shape, u_init, False, False)
+
+    return F.spectral_norm(w, u, dim=dim, itr=itr, eps=eps, test=test)
+
+
+@parametric_function_api("spectral-norm", [
+    ('W_sn', 'Spectral Normalized Weight matrix', 'w.shape', False),
+    ('u', 'singular vector', '(w.shape[dim], )', False),
+])
+def _spectral_norm_v1(w, dim=0, itr=1, eps=1e-12, test=False, u_init=None, fix_parameters=True):
     """Spectral Normalization.
 
     .. math::
@@ -3519,7 +3651,7 @@ def _spectral_norm(w, dim=0, itr=1, eps=1e-12, test=False, u_init=None, fix_para
         w_shape = w.shape
     d0 = w.shape[0]            # Out
     d1 = np.prod(w.shape[1:])  # In
-    w = F.reshape(w, [d0, d1], inplace=False)
+    w = F.reshape(w, [d0, d1])
     if u_init is None:
         u_init = NormalInitializer()
     u0 = get_parameter_or_create("u", [d0], u_init, False, False)
@@ -3605,8 +3737,72 @@ def _spectral_norm_outer_most_dim(w, dim, itr=1, eps=1e-12, test=False,
 @parametric_function_api("wn", [
     ('g', 'Weight Normalization adaptive scale scalar.', 'w.shape[dim]', True),
 ])
-def weight_normalization(v, dim=0, eps=1e-12, fix_parameters=False):
+def weight_normalization(w, dim=0, eps=1e-12, g_init=None, fix_parameters=False):
     """Weight Normalization.
+
+    .. math::
+        \mathbf{w}_{WN} = g \dfrac{\mathbf{w}}{\|\mathbf{w}\|}
+
+    where :math:`\mathbf{w}` is the input weights to be normalized, 
+    and :math:`g` is learnable multiplication factors each of which is applied to each input weights at `dim`.
+    This function is in general used as callback passed to apply_w for PF.convolution, PF.affine and so on.
+    According to the author`s `original implementation <https://github.com/TimSalimans/weight_norm>`_, :math:`v` should be initialized by :math:`N(0, 0.05)`.
+    To meet this condition, initializer should be passed to convolution which Weight Normalization is applied, like an example below.
+
+
+    References:
+        * `Tim Salimans, Diederik P. Kingma, Weight Normalization: A Simple Reparameterization to Accelerate Training of Deep Neural Networks.
+          <https://arxiv.org/abs/1602.07868>`_
+
+    Args:
+        W (~nnabla.Variable): Input N-D array with shape. This is normally network parameter.
+        dim (`int`):
+            Output dimension. Default is 0.
+            If the dimension is not 0, then the specified dimension becomes the most-left dimension by transposing.
+        eps (`float`): Epsilon for the normalization. Default is 1e-12.
+        g_init (:obj:`nnabla.initializer.BaseInitializer` or :obj:`numpy.ndarray`): Initializer for the scale. By default, L2-norm of weights corresponding to `dim` are used.
+
+
+    Returns:
+        ~nnabla.Variable:  :math:`W` with the same shape as :math:`v`.
+
+    Example:
+
+        .. code-block:: python
+
+            import nnabla as nn
+            import nnabla.parametric_functions as PF
+            import nnabla.initializer as I
+
+            # h is nn.Variable.
+
+            # convolution
+            # according to the original implementation, w should be initialized by N(0, 0.05).
+            h = PF.convolution(h, ..., apply_w=PF.weight_normalization, w_init=I.NormalInitializer(0.05))
+
+            # affine
+            h = PF.affine(h, ..., apply_w=lambda w: PF.weight_normalization(w, dim=1), w_init=I.NormalInitializer(0.05))
+
+    .. warning::
+       Up to the version 1.10.0, this had been implemented as the composite functions.
+
+    """
+    outmaps = w.shape[dim]
+    if g_init is None:
+        g_init = WeightNormalizationScaleInitializer(w, dim, eps)
+    g = get_parameter_or_create("g", (outmaps,),
+                                initializer=g_init, need_grad=True, as_need_grad=not fix_parameters)
+    return F.weight_normalization(w, g, dim, eps)
+
+
+@parametric_function_api("wn", [
+    ('g', 'Weight Normalization adaptive scale scalar.', 'w.shape[dim]', True),
+])
+def _weight_normalization_v1(v, dim=0, eps=1e-12, fix_parameters=False):
+    """Weight Normalization.
+
+    This functions is of the composite functions. It takes a lots of memories since the intermediate results
+    are stored as a part of the computation graph.
 
     .. math::
         \mathbf{w} = g \dfrac{\mathbf{v}}{\|\mathbf{v}\|}

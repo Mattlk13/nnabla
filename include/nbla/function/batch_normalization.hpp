@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,7 +38,7 @@ using std::vector;
 namespace nbla {
 
 NBLA_REGISTER_FUNCTION_HEADER(BatchNormalization, const vector<int> &, float,
-                              float, bool);
+                              float, bool, bool, bool);
 
 /** Batch normalization at training time defined as
 @f[
@@ -77,12 +78,16 @@ by Reducing Internal Covariate Shift. https://arxiv.org/abs/1502.03167
  */
 template <typename T>
 class BatchNormalization
-    : public BaseFunction<const vector<int> &, float, float, bool> {
+    : public BaseFunction<const vector<int> &, float, float, bool, bool, bool> {
 protected:
   vector<int> axes_;
   float decay_rate_;
   float eps_;
   bool batch_stat_;
+  bool no_scale_;
+  bool no_bias_;
+  // beta, gamma, mean, variance index
+  int b_idx_, g_idx_, m_idx_, v_idx_;
   Variable mean_;
   Variable var_;
   Size_t size0_, size1_, size2_, size02_, size12_;
@@ -96,13 +101,15 @@ protected:
 
 public:
   BatchNormalization(const Context &ctx, const vector<int> axes,
-                     float decay_rate, float eps, bool batch_stat)
-      : BaseFunction(ctx, axes, decay_rate, eps, batch_stat), axes_(axes),
-        decay_rate_(decay_rate), eps_(eps), batch_stat_(batch_stat) {}
+                     float decay_rate, float eps, bool batch_stat,
+                     bool no_scale, bool no_bias)
+      : BaseFunction(ctx, axes, decay_rate, eps, batch_stat, no_scale, no_bias),
+        axes_(axes), decay_rate_(decay_rate), eps_(eps),
+        batch_stat_(batch_stat), no_scale_(no_scale), no_bias_(no_bias) {}
   virtual ~BatchNormalization() {}
   virtual shared_ptr<Function> copy() const {
     return create_BatchNormalization(ctx_, axes_, decay_rate_, eps_,
-                                     batch_stat_);
+                                     batch_stat_, no_scale_, no_bias_);
   }
   virtual vector<dtypes> in_types() {
     return vector<dtypes>{get_dtype<T>(), get_dtype<T>(), get_dtype<T>(),
@@ -111,7 +118,7 @@ public:
   virtual vector<dtypes> out_types() {
     return vector<dtypes>{get_dtype<T>(), get_dtype<T>(), get_dtype<T>()};
   }
-  virtual int min_inputs() { return 5; }
+  virtual int min_inputs() { return 3; }
   virtual int min_outputs() { return 1; }
   virtual string name() { return "BatchNormalization"; }
   virtual vector<string> allowed_array_classes() {
@@ -127,12 +134,15 @@ protected:
                                    const Variables &outputs);
   NBLA_API virtual void forward_impl(const Variables &inputs,
                                      const Variables &outputs);
+  NBLA_API virtual void recompute_impl(const Variables &inputs,
+                                       const Variables &outputs);
   NBLA_API virtual void backward_impl(const Variables &inputs,
                                       const Variables &outputs,
                                       const vector<bool> &propagate_down,
                                       const vector<bool> &accum);
   NBLA_API virtual void forward_impl_batch(const Variables &inputs,
-                                           const Variables &outputs);
+                                           const Variables &outputs,
+                                           const bool update_inputs);
   NBLA_API virtual void forward_impl_global(const Variables &inputs,
                                             const Variables &outputs);
   NBLA_API virtual void backward_impl_batch(const Variables &inputs,
@@ -143,6 +153,36 @@ protected:
                                              const Variables &outputs,
                                              const vector<bool> &propagate_down,
                                              const vector<bool> &accum);
+  virtual bool grad_depends_input_data_impl(int i, int j) const {
+    if (batch_stat_) { // Training mode.
+      if (i == 0) {
+        if (j == 0 || j == g_idx_)
+          return true;
+      }
+      if (i == g_idx_) {
+        if (j == 0)
+          return true;
+      }
+      return false;
+
+    } else { // Testing mode.
+      if (i == 0) {
+        if (j == g_idx_ || j == v_idx_)
+          return true;
+      }
+      if (i == g_idx_) {
+        if (j == 0 || j == m_idx_ || j == v_idx_)
+          return true;
+      }
+    }
+    return false;
+  }
+  virtual bool overwrite_input_data_in_forward_impl(int i) const {
+    if (i == m_idx_ || i == v_idx_) {
+      return true;
+    }
+    return false;
+  }
 };
 }
 #endif

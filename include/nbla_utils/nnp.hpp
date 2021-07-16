@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -492,7 +492,7 @@ public:
 
   /** Save parameters
 
-  @param[in] name output binary filename (.protobuf)
+  @param[in] name output binary filename (.protobuf or .h5)
   */
   NBLA_API bool save_parameters(const string &filename);
 };

@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,6 +27,12 @@ NBLA_REGISTER_FUNCTION_SOURCE(Flip, const vector<int> &);
 
 template <typename T>
 void Flip<T>::setup_impl(const Variables &inputs, const Variables &outputs) {
+
+  for (std::size_t i = 0; i < axes_.size(); ++i) {
+    if (axes_[i] < 0)
+      axes_[i] += inputs[0]->shape().size();
+  }
+
   outputs[0]->reshape(inputs[0]->shape(), true);
   flip_.resize(inputs[0]->ndim());
 }

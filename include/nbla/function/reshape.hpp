@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -72,10 +73,6 @@ public:
     return inplace_ ? Function::INPLACE_NOT_MODIFY : Function::NOT_INPLACE;
   }
   virtual int inplace_data_with(int i) const { return 0; }
-  virtual int inplace_grad(int i) const {
-    return inplace_ ? Function::INPLACE_NOT_MODIFY : Function::NOT_INPLACE;
-  }
-  virtual int inplace_grad_with(int i) const { return 0; }
 
 protected:
   NBLA_API virtual void setup_impl(const Variables &inputs,
@@ -86,6 +83,9 @@ protected:
                                       const Variables &outputs,
                                       const vector<bool> &propagate_down,
                                       const vector<bool> &accum);
+  virtual bool grad_depends_input_data_impl(int i, int j) const {
+    return false;
+  }
 };
 }
 #endif

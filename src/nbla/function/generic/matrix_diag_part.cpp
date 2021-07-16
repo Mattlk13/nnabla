@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ void MatrixDiagPart<T>::setup_impl(const Variables &inputs,
 
   // Create new shape and compute part size
   Shape_t shape_y;
-  for (int i = 0; i < shape_x.size() - 1; ++i) {
+  for (Shape_t::size_type i = 0; i < shape_x.size() - 1; ++i) {
     shape_y.push_back(shape_x[i]);
   }
 

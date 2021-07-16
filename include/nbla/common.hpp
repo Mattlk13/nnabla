@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ maybe because they are uncategorized.
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <numeric>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -42,21 +43,21 @@ using std::shared_ptr;
 typedef vector<int64_t> Shape_t; ///< Type of array shape and strides etc.
 typedef int64_t Size_t;          ///< Type of size of array
 
+// Flags for SyncedArray and data transfer
+enum AsyncFlag { NONE = 0b0, ASYNC = 0b1, UNSAFE = 0b10, OFFREC = 0b100 };
+
 /** Compute array size by shape
 
 @param[in] axis size under given axis will be computed
 */
 inline Size_t compute_size_by_shape(const Shape_t &shape, Size_t axis = 0) {
   axis = std::max(static_cast<Size_t>(0), axis);
-  NBLA_CHECK(axis <= shape.size(), error_code::value,
+  NBLA_CHECK(axis <= static_cast<Size_t>(shape.size()), error_code::value,
              "axis must be less than or equal to size of shape. "
              "axis: %ld > size of shape: %ld.",
              axis, shape.size());
-  Size_t ret = 1;
-  for (int i = axis; i < shape.size(); ++i) {
-    ret *= shape[i];
-  }
-  return ret;
+  return std::accumulate(shape.begin() + axis, shape.end(), (Size_t)1,
+                         std::multiplies<Size_t>());
 }
 
 /** Helper for getting strides of C contiguous memory arrangement.
@@ -80,11 +81,36 @@ inline string string_join(const vector<T> &vec, const string &delim) {
   if (vec.empty()) {
     return "";
   }
-  for (int i = 0; i < vec.size() - 1; ++i) {
+  for (typename vector<T>::size_type i = 0; i < vec.size() - 1; ++i) {
     oss << vec[i] << delim;
   }
   oss << vec[vec.size() - 1];
   return oss.str();
+}
+
+/** size_t to byte strings that is readable by human.
+ */
+inline string byte_to_human_readable(long double byte) {
+  vector<string> units = {"B", "KB", "MB", "GB"};
+
+  bool neg = byte < 0;
+  if (neg)
+    byte = -byte;
+
+  string unit;
+  double div = 1 << 10;
+  for (auto &u : units) {
+    unit = u;
+    if (byte < div)
+      break;
+    byte /= div;
+  }
+
+  std::ostringstream out;
+  out.precision(2);
+  out << std::fixed << byte;
+
+  return (neg ? "-" : "") + out.str() + unit;
 }
 
 /** Scoped callback
@@ -110,7 +136,7 @@ template <typename T> void hash_combine(size_t &seed, T const &v) {
 template <typename T>
 vector<T *> as_pointer_array(const vector<shared_ptr<T>> &vec) {
   vector<T *> ret(vec.size());
-  for (int i = 0; i < vec.size(); ++i) {
+  for (unsigned int i = 0; i < vec.size(); ++i) {
     ret[i] = vec[i].get();
   }
   return ret;

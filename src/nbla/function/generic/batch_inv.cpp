@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -72,7 +72,7 @@ void BatchInv<T>::backward_impl(const Variables &inputs,
   // gx = -inv_x^T * gy * inv_x^T
 
   // neg_inv_x = -inv_x = inv_x * -1
-  auto f_mul_scalar = create_MulScalar(this->ctx_, -1.0);
+  auto f_mul_scalar = create_MulScalar(this->ctx_, -1.0, false);
   f_mul_scalar->setup(Variables{&inv_x}, Variables{&neg_inv_x});
   f_mul_scalar->forward(Variables{&inv_x}, Variables{&neg_inv_x});
 

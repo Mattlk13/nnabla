@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -56,6 +57,7 @@ protected:
   NBLA_API virtual void
   backward_impl_reduce_prod(const T *dy, const T *x, const T *y, T *dx,
                             int outer_size, int reduction_size, bool accum);
+  virtual bool grad_depends_input_data_impl(int i, int j) const { return true; }
 };
 }
 #endif

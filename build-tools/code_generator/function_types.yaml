@@ -22,6 +22,9 @@ DepthwiseConvolution:
 Deconvolution:
   float: [float]
   half: [Half]
+DeformableConvolution:
+  float: [float]
+  half: [Half]
 AdaptiveSeparableConvolution:
   float: [float]
   half: [Half]
@@ -82,6 +85,9 @@ PReLU:
 GELU:
   float: [float]
   half: [Half]
+Mish:
+  float: [float]
+  half: [Half]
 ReLU6:
   float: [float]
   half: [Half]
@@ -112,7 +118,31 @@ FusedBatchNormalization:
 BatchNormalization:
   float: [float]
   half: [Half]      
+GroupNormalization:
+  float: [float]
+  half: [Half]      
+InstanceNormalization:
+  float: [float]
+  half: [Half]      
+LayerNormalization:
+  float: [float]
+  half: [Half]      
+NormNormalization:
+  float: [float]
+  half: [Half]
 SyncBatchNormalization:
+  float: [float]
+  half: [Half]
+TensorNormalization:
+  float: [float]
+  half: [Half]
+WeightNormalization:
+  float: [float]
+  half: [Half]
+WeightStandardization:
+  float: [float]
+  half: [Half]
+SpectralNorm:
   float: [float]
   half: [Half]
 MeanSubtraction:
@@ -127,6 +157,9 @@ ClipGradByNorm:
 Sum:
   float: [float]
   half: [Half]
+CumSum:
+  float: [float]
+  # half: [Half]  
 Mean:
   float: [float]
   half: [Half]
@@ -139,6 +172,9 @@ Min:
 Prod:
   float: [float]
   half: [Half]
+CumProd:
+  float: [float]
+  # half: [Half]  
 ReduceSum:
   float: [float]
   half: [Half]
@@ -229,6 +265,9 @@ LessEqual:
 Less:
   float: [float]
   half: [Half]
+SearchSorted:
+  float: [float]
+  half: [Half]
 LogicalAndScalar:
   float: [float]
   half: [Half]
@@ -294,7 +333,7 @@ Identity:
   half: [Half]
 BatchMatmul:
   float: [float]
-  half: [Half]  
+  half: [Half]
 Concatenate:
   float: [float]
   half: [Half]
@@ -322,6 +361,9 @@ BroadcastTo:
 Tile:
   float: [float]
   half: [Half]
+Meshgrid:
+  float: [float]
+  # half: [Half]
 OneHot:
   float: [int, float]
   half: [int, Half]
@@ -347,6 +389,9 @@ BatchInv:
   float: [float]
   half: [Half]
 BatchDet:
+  float: [float]
+  half: [Half]
+BatchLogdet:
   float: [float]
   half: [Half]
 Interpolate:
@@ -450,7 +495,7 @@ Pow2Quantize:
 QuantizeLinear:
   float: [float]
   half: [Half]
-DequantizeLinear:  
+DequantizeLinear:
   float: [float]
   half: [Half]
 TopNError:
@@ -517,7 +562,7 @@ ACosh:
   half: [Half]
 ATanh:
   float: [float]
-  half: [Half]      
+  half: [Half]
 NmsDetection2d:
   float: [float]
 #  half: [Half]
@@ -527,10 +572,19 @@ FFT:
 IFFT:
   float: [float]
 #  half: [Half]
+STFT:
+  float: [float]
+  half: [Half]
+ISTFT:
+  float: [float]
+  half: [Half]
 Prune:
   float: [float]
   Half: [Half]
 Assign:
+  float: [float]
+  half: [Half]
+Gather:
   float: [float]
   half: [Half]
 GatherNd:
@@ -539,10 +593,19 @@ GatherNd:
 ScatterNd:
   float: [float]
   half: [Half]
+ScatterAdd:
+  float: [float]
+  half: [Half]
 MaxPoolingBackward:
   float: [float]
   half: [Half]
 WarpByFlow:
+  float: [float]
+  half: [Half]
+AffineGrid:
+  float: [float]
+  half: [Half]
+WarpByGrid:
   float: [float]
   half: [Half]
 PatchCorrelation:
@@ -555,5 +618,14 @@ RandBeta:
   float: [float]
   half: [Half]
 RandGamma:
+  float: [float]
+  half: [Half]
+PackPaddedSequence:
+  float: [float]
+  half: [Half]
+PadPackedSequence:
+  float: [float]
+  half: [Half]
+Norm:
   float: [float]
   half: [Half]

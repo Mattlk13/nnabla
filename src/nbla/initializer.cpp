@@ -1,10 +1,11 @@
-// Copyright (c) 2018 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,13 +19,12 @@
 #include <nbla/context.hpp>
 #include <nbla/exception.hpp>
 #include <nbla/initializer.hpp>
+#include <nbla/random_manager.hpp>
 using std::make_shared;
 
 namespace nbla {
 
 using namespace std;
-std::random_device seed_gen;
-std::default_random_engine engine(seed_gen());
 std::uniform_real_distribution<> uniform_real(0.0, 1.0);
 std::normal_distribution<> normal(0.0, 1.0);
 std::uniform_int_distribution<> uniform_int(0, INT_MAX);
@@ -64,11 +64,13 @@ UniformInitializer::UniformInitializer(float lower, float upper)
              lower_, upper_);
 }
 void UniformInitializer::initialize(NdArrayPtr param) {
+  std::mt19937 &rgen =
+      SingletonManager::get<RandomManager>()->get_rand_generator();
   const int size = param->size();
   Array *arr = param->cast(get_dtype<float_t>(), cpu_ctx, false);
   float_t *param_d = arr->pointer<float_t>();
   for (int i = 0; i < size; i++)
-    param_d[i] = (upper_ - lower_) * uniform_real(engine) + lower_;
+    param_d[i] = (upper_ - lower_) * uniform_real(rgen) + lower_;
 }
 
 ConstantInitializer::ConstantInitializer() : Initializer(), value_(0.0) {}
@@ -89,11 +91,13 @@ NormalInitializer::NormalInitializer(float mu, float sigma)
              "sigma must be positive (sigma: (%f))", sigma_);
 }
 void NormalInitializer::initialize(NdArrayPtr param) {
+  std::mt19937 &rgen =
+      SingletonManager::get<RandomManager>()->get_rand_generator();
   const int size = param->size();
   Array *arr = param->cast(get_dtype<float_t>(), cpu_ctx, false);
   float_t *param_d = arr->pointer<float_t>();
   for (int i = 0; i < size; i++)
-    param_d[i] = mu_ + sigma_ * normal(engine);
+    param_d[i] = mu_ + sigma_ * normal(rgen);
 }
 
 UniformIntInitializer::UniformIntInitializer()
@@ -105,6 +109,8 @@ UniformIntInitializer::UniformIntInitializer(int lower, int upper)
              lower_, upper_);
 }
 void UniformIntInitializer::initialize(NdArrayPtr param) {
+  std::mt19937 &rgen =
+      SingletonManager::get<RandomManager>()->get_rand_generator();
   const int size = param->size();
   Array *arr = param->cast(get_dtype<int>(), cpu_ctx, false);
   int range = upper_ - lower_;
@@ -113,7 +119,7 @@ void UniformIntInitializer::initialize(NdArrayPtr param) {
     if (range == 0) {
       param_d[i] = lower_;
     } else {
-      param_d[i] = uniform_int(engine) % range + lower_;
+      param_d[i] = uniform_int(rgen) % range + lower_;
     }
 }
 }

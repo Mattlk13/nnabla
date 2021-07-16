@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@ void ClipGradByValue<T>::setup_impl(const Variables &inputs,
              shape2.size());
 
   // Shape check
-  for (int i = 0; i < shape0.size(); i++) {
+  for (Shape_t::size_type i = 0; i < shape0.size(); i++) {
     NBLA_CHECK(shape0[i] && shape1[i] && shape2[i], error_code::value,
                "Size at shape[%d] differs %d, %d, and %d", i, shape0[i],
                shape1[i], shape2[i])

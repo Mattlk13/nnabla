@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ import collections
 
 _SupportedInfo = collections.namedtuple(
     '_SupportedInfo', 'import_name export_name')
-extensions = _SupportedInfo(import_name=['.nnp', '.onnx', '.ckpt', '.pb'], export_name=[
-                            '.nnp', '.nnb', '.onnx', '.ckpt', '.pb'])
-formats = _SupportedInfo(import_name=['NNP', 'ONNX', 'TF_CKPT', 'TF_PB'], export_name=[
-                         'NNP', 'NNB', 'CSRC', 'ONNX', 'TF_CKPT', 'TF_PB'])
+extensions = _SupportedInfo(import_name=['.nnp', '.onnx', '.ckpt', '.meta', '.pb', 'saved_model', '.tflite'], export_name=[
+                            '.nnp', '.nnb', '.onnx', '.tflite', 'saved_model', '.pb'])
+formats = _SupportedInfo(import_name=['NNP', 'ONNX', 'TF_CKPT_V1', 'TF_CKPT_V2', 'TF_PB', 'SAVED_MODEL', 'TFLITE'], export_name=[
+                         'NNP', 'NNB', 'CSRC', 'ONNX', 'SAVED_MODEL', 'TFLITE', 'TF_PB'])

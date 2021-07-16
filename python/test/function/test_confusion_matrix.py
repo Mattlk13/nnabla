@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ def ref_confusion_matrix(x, l, axis):
 
 @pytest.mark.parametrize("ctx, func_name", ctxs)
 @pytest.mark.parametrize("seed", [313])
-@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("axis", [0, 1, 2, -1, -2, -3])
 def test_confusion_matrix_forward(seed, ctx, axis, func_name):
     ishape = [5, 6, 7]
     rng = np.random.RandomState(seed)

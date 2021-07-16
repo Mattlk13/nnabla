@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -39,8 +40,11 @@ Outputs:
 @param val Value of the scalar.
 \ingroup FunctionImplGrp
  */
-NBLA_DEFINE_TRANSFORM_UNARY_1(PowScalar, std::pow(x, (T)a0),
-                              dy *(T)a0 *std::pow(x, (T)a0 - (T)1), false,
-                              double);
+// Inplacing is obsoleted.
+NBLA_DEFINE_TRANSFORM_UNARY_1_INPLACE(PowScalar,
+                                      a0 == 0.5f ? std::sqrt(x)
+                                                 : std::pow(x, (T)a0),
+                                      dy *(T)a0 *std::pow(x, (T)a0 - (T)1),
+                                      false, true, double, true);
 }
 #endif

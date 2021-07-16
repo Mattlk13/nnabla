@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ def ref_stack(*inputs, **params):
 
 
 @pytest.mark.parametrize("ctx, func_name", ctxs)
-@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("axis", [0, 1, 2, -1, -2, -3])
 @pytest.mark.parametrize("seed", [313])
 @pytest.mark.parametrize("num_inputs", [2, 3])
 def test_stack_forward_backward(seed, axis, num_inputs, ctx, func_name):
@@ -40,7 +40,7 @@ def test_stack_forward_backward(seed, axis, num_inputs, ctx, func_name):
 
 
 @pytest.mark.parametrize("ctx, func_name", ctxs)
-@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("axis", [0, 1, 2, -1, -2, -3])
 @pytest.mark.parametrize("seed", [313])
 @pytest.mark.parametrize("num_inputs", [2, 3])
 def test_stack_double_backward(seed, axis, num_inputs, ctx, func_name):
@@ -48,11 +48,9 @@ def test_stack_double_backward(seed, axis, num_inputs, ctx, func_name):
     rng = np.random.RandomState(seed)
     shape = [2, 3, 4]
     inputs = [rng.randn(*shape).astype(np.float32) for x in range(num_inputs)]
-    backward_function_tester(rng, F.stack, None,
+    backward_function_tester(rng, F.stack,
                              inputs=inputs,
                              func_args=[], func_kwargs=dict(axis=axis),
-                             atol_b=1e-3,
                              atol_accum=1e-3,
                              dstep=1e-3,
-                             ctx=ctx, func_name=None,
-                             disable_half_test=False)
+                             ctx=ctx)

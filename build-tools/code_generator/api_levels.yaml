@@ -224,3 +224,53 @@
   QuantizeLinear_iBi: 293
 17:
   FusedConvolution_iiIiIiIiBffBifF: 295
+18:
+  AffineGrid_iIB: 296
+  WarpByGrid_iiBB: 297
+19:
+  WeightNormalization_if: 304
+20:
+  PackPaddedSequence_B: 305
+  PadPackedSequence_Bfi: 306
+21:
+  AddScalar_fB: 312
+  BcAdd2_B: 307
+  Div2_B: 310
+  Mul2_B: 309
+  MulScalar_fB: 313
+  Pow2_B: 311
+  PowScalar_fB: 314
+  Sub2_B: 308
+22:
+  ScatterAdd_i: 315
+23:
+  NormNormalization_fiIf: 317
+24:
+  Norm_fiIB: 318
+25:
+  BatchLogdet_Empty: 319
+26:
+  RandomShift_iIifii: 320
+27:
+  GroupNormalization_iiiIfBB: 321
+  InstanceNormalization_iiIfBB: 322
+  LayerNormalization_iIfBB: 323
+  TensorNormalization_iIfBB: 324
+  WeightStandardization_if: 325
+28:
+  BatchNormalization_iIffBBB: 326
+29:
+  ISTFT_iiiiB: 328
+  STFT_iiiiBi: 327
+30:
+  DeformableConvolution_iiIiIiIiiB: 329
+31:
+  SpectralNorm_iifB: 330
+32:
+  Meshgrid_B: 334
+33:
+  SoftPlus_f: 335
+34:
+  Dropout_fiB: 336
+35:
+  SpectralNorm_iifBB: 337

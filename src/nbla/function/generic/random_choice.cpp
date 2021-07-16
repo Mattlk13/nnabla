@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +16,7 @@
 #include <nbla/array.hpp>
 #include <nbla/common.hpp>
 #include <nbla/function/random_choice.hpp>
+#include <nbla/random_manager.hpp>
 #include <nbla/utils/nd_index.hpp>
 #include <nbla/variable.hpp>
 #include <numeric>
@@ -57,8 +59,15 @@ void RandomChoice<T>::setup_impl(const Variables &inputs,
 }
 
 template <typename T>
-void RandomChoice<T>::forward_impl(const Variables &inputs,
-                                   const Variables &outputs) {
+void RandomChoice<T>::setup_recompute_impl(const Variables &inputs,
+                                           const Variables &outputs) {
+  save_rng_ = true;
+}
+
+template <typename T>
+void RandomChoice<T>::random_choice(const Variables &inputs,
+                                    const Variables &outputs,
+                                    std::mt19937 &rgen) {
   using std::uniform_real_distribution;
   using std::partial_sum;
   using std::count_if;
@@ -81,7 +90,7 @@ void RandomChoice<T>::forward_impl(const Variables &inputs,
                  "At least one weight must be greater zero.")
       uniform_real_distribution<> uniform(0, w_sum.back());
       for (int i = 0; i < this->inner_loop_; i++) {
-        T u = uniform(this->rgen_);
+        T u = uniform(rgen);
         auto index = w_size - 1;
         for (int i = 0; i < w_size; i++) {
           if (u < w_sum[i]) {
@@ -108,7 +117,7 @@ void RandomChoice<T>::forward_impl(const Variables &inputs,
         partial_sum(w_vec.begin(), w_vec.end(), w_sum.begin());
         uniform_real_distribution<> uniform(0, w_sum.back());
         while (need--) {
-          T u = uniform(this->rgen_);
+          T u = uniform(rgen);
           for (int i = 0; i < w_size; i++) {
             if (u < w_sum[i]) {
               if (w_vec[i] > 0) {
@@ -127,6 +136,27 @@ void RandomChoice<T>::forward_impl(const Variables &inputs,
       x_data += w_size;
     }
   }
+}
+
+template <typename T>
+void RandomChoice<T>::forward_impl(const Variables &inputs,
+                                   const Variables &outputs) {
+  std::mt19937 &rgen =
+      seed_ == -1 ? SingletonManager::get<RandomManager>()->get_rand_generator()
+                  : rgen_;
+  // Remember the random state for recomputation.
+  if (save_rng_) {
+    rgen_for_recompute_ = rgen;
+  }
+
+  random_choice(inputs, outputs, rgen);
+}
+
+template <typename T>
+void RandomChoice<T>::recompute_impl(const Variables &inputs,
+                                     const Variables &outputs) {
+  auto rgen = rgen_for_recompute_;
+  random_choice(inputs, outputs, rgen);
 }
 
 template <typename T>

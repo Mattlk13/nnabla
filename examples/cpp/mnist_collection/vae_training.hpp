@@ -1,10 +1,11 @@
-// Copyright (c) 2018 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -62,7 +63,7 @@ CgVariablePtr model(CgVariablePtr x, ParameterDirectory parameters) {
   // The prior variable and the reparameterization trick
   Shape_t shape_mu = mu->variable()->shape();
   vector<int> shape_z(shape_mu.size());
-  for (int i = 0; i < shape_z.size(); i++)
+  for (unsigned int i = 0; i < shape_z.size(); i++)
     shape_z[i] = shape_mu[i];
   auto epsilon = f::randn(0.0, 1.0, shape_z, -1);
   auto z = mu + sigma * epsilon;
@@ -79,7 +80,7 @@ CgVariablePtr model(CgVariablePtr x, ParameterDirectory parameters) {
   Shape_t shape_xa = xa->variable()->shape();
   int n_pb = 1;
   vector<int> shape_pb(shape_xa.size());
-  for (int i = 0; i < shape_xa.size(); i++) {
+  for (unsigned int i = 0; i < shape_xa.size(); i++) {
     if (0 < i)
       n_pb *= shape_xa[i];
     shape_pb[i] = shape_xa[i];

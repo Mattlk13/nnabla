@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -46,12 +47,19 @@ class DataIterator(object):
         batch_size (int): Size of data unit.
         rng (None or :obj:`numpy.random.RandomState`): Numpy random number
             generator.
+        use_thread (bool): If ``use_thread`` is set to True, iterator will use another
+            thread to fetch data. If ``use_thread`` is set to False, iterator will use
+            current thread to fetch data.
         epoch_begin_callbacks (list of functions): An item is a function
             which takes an epoch index as a argument. These are called
             at the beginning of an epoch.
         epoch_end_callbacks (list of functions): An item is a function
             which takes an epoch index as a argument. These are called
             at the end of an epoch.
+        stop_exhausted (bool): If ``stop_exhausted`` is set to False, iterator will be reset
+            so that iteration can be continued. If ``stop_exhausted`` is set to True, iterator
+            will raise StopIteration to stop the loop.
+
 
     '''
 
@@ -61,10 +69,12 @@ class DataIterator(object):
                  rng=None,
                  use_thread=True,
                  epoch_begin_callbacks=[],
-                 epoch_end_callbacks=[]):
+                 epoch_end_callbacks=[],
+                 stop_exhausted=False):
         logger.info('Using DataIterator')
         if rng is None:
             rng = numpy.random.RandomState(313)
+        self._stop_exhausted = stop_exhausted
         self._rng = rng
         self._shape = None       # Only use with padding
         self._data_position = 0  # Only use with padding
@@ -105,12 +115,14 @@ class DataIterator(object):
         return self
 
     def __exit__(self, type, value, traceback):
-        pass
+        self.close()
 
     def close(self):
         if not self._closed:
             if six.PY3:
                 atexit.unregister(self.close)
+            if self._use_thread:
+                self._next_thread.join()
             self._data_source.close()
             self._closed = True
 
@@ -180,14 +192,18 @@ class DataIterator(object):
     def _next(self):
         data = [[] for x in self._variables]
 
-        for b in range(self._batch_size):
+        if self._data_source.position + self._batch_size > self._size:
+            if self._stop_exhausted:
+                self._current_data = None
+                return
 
+        for b in range(self._batch_size):
             d = self._data_source.next()
             if d is None:
                 self._current_data = None
                 return
 
-            if self._data_source.position >= self._size:
+            if self._data_source.position >= self._size and not self._stop_exhausted:
                 self._reset()
 
             for i, v in enumerate(self._variables):
@@ -213,23 +229,28 @@ class DataIterator(object):
             self._next_thread.join()
 
             if self._current_data is None:
+                if self._stop_exhausted and self._data_source.position + self._batch_size >= self._size:
+                    raise StopIteration
                 logger.log(99, 'next() got None retrying.')
                 self._next_thread = threading.Thread(target=self._next)
                 self._next_thread.start()
                 self._next_thread.join()
+
             self._current_epoch, data = self._current_data
             # Start next thread.
             self._next_thread = threading.Thread(target=self._next)
             self._next_thread.start()
         else:
             self._next()
+            if self._current_data is None:
+                raise StopIteration
             self._current_epoch, data = self._current_data
 
         return data
 
     def slice(self, rng, num_of_slices=None, slice_pos=None,
               slice_start=None, slice_end=None,
-              cache_dir=None):
+              cache_dir=None, use_cache=False):
         '''
         Slices the data iterator so that newly generated data iterator has access to limited portion of the original data.
 
@@ -239,7 +260,8 @@ class DataIterator(object):
             slice_pos(int): Position of the slice to be assigned to the new data iterator. Must be used together with `num_of_slices`.
             slice_start(int): Starting position of the range to be sliced into new data iterator. Must be used together with `slice_end`.
             slice_end(int) : End position of the range to be sliced into new data iterator. Must be used together with `slice_start`.
-            cache_dir(str) : Directory to save cache files
+            cache_dir(str) : Directory to save cache files. if cache_dir is None and use_cache is True, will used memory cache.
+            use_cache(bool): Whether use cache for data_source.
 
         Example:
 
@@ -289,34 +311,43 @@ class DataIterator(object):
                     cache_dir = ds._cache_dir
                 ds = ds._data_source
 
-        if cache_dir is None:
-            return DataIterator(
-                DataSourceWithMemoryCache(
-                    SlicedDataSource(
-                        self._data_source,
-                        self._data_source.shuffle,
-                        slice_start=slice_start,
-                        slice_end=slice_end),
-                    shuffle=self._shuffle,
-                    rng=rng),
-                self._batch_size)
-        else:
-            return DataIterator(
-                DataSourceWithMemoryCache(
-                    DataSourceWithFileCache(
+        if use_cache:
+            if cache_dir is None:
+                return DataIterator(
+                    DataSourceWithMemoryCache(
                         SlicedDataSource(
                             self._data_source,
                             self._data_source.shuffle,
                             slice_start=slice_start,
                             slice_end=slice_end),
-                        cache_dir=cache_dir,
-                        cache_file_name_prefix='cache_sliced_{:08d}_{:08d}'.format(
-                            slice_start,
-                            slice_end),
                         shuffle=self._shuffle,
                         rng=rng),
-                    shuffle=self._shuffle,
-                    rng=rng),
+                    self._batch_size)
+            else:
+                return DataIterator(
+                    DataSourceWithMemoryCache(
+                        DataSourceWithFileCache(
+                            SlicedDataSource(
+                                self._data_source,
+                                self._data_source.shuffle,
+                                slice_start=slice_start,
+                                slice_end=slice_end),
+                            cache_dir=cache_dir,
+                            cache_file_name_prefix='cache_sliced_{:08d}_{:08d}'.format(
+                                slice_start,
+                                slice_end),
+                            shuffle=self._shuffle,
+                            rng=rng),
+                        shuffle=self._shuffle,
+                        rng=rng),
+                    self._batch_size)
+        else:
+            return DataIterator(
+                SlicedDataSource(
+                    self._data_source,
+                    self._data_source.shuffle,
+                    slice_start=slice_start,
+                    slice_end=slice_end),
                 self._batch_size)
 
     def _callback_epoch_end(self):
@@ -347,11 +378,13 @@ class DataIterator(object):
 def data_iterator(data_source,
                   batch_size,
                   rng=None,
+                  use_thread=True,
                   with_memory_cache=True,
                   with_file_cache=False,
                   cache_dir=None,
                   epoch_begin_callbacks=[],
-                  epoch_end_callbacks=[]):
+                  epoch_end_callbacks=[],
+                  stop_exhausted=False):
     '''data_iterator
     Helper method to use :py:class:`DataSource <nnabla.utils.data_source.DataSource>`.
 
@@ -372,6 +405,10 @@ def data_iterator(data_source,
         batch_size (int): Batch size.
         rng (None or :obj:`numpy.random.RandomState`): Numpy random number
             generator.
+        use_thread (bool): 
+            If ``use_thread`` is set to True, iterator will use another thread to 
+            fetch data. If ``use_thread`` is set to False, iterator will use
+            current thread to fetch data.
         with_memory_cache (bool):
             If ``True``, use :py:class:`.data_source.DataSourceWithMemoryCache`
             to wrap ``data_source``. It is a good idea to set this as true unless
@@ -395,6 +432,9 @@ def data_iterator(data_source,
         epoch_end_callbacks (list of functions): An item is a function
             which takes an epoch index as an argument. These are called
             at the end of an epoch.
+        stop_exhausted (bool): If ``stop_exhausted`` is set to False, iterator will be reset
+            so that iteration can be continued. If ``stop_exhausted`` is set to True, iterator
+            will raise StopIteration to stop the loop.
 
     Returns:
         :py:class:`DataIterator <nnabla.utils.data_iterator.DataIterator>`:
@@ -411,16 +451,20 @@ def data_iterator(data_source,
                                            rng=rng)
         return DataIterator(ds,
                             batch_size,
+                            use_thread=use_thread,
                             epoch_begin_callbacks=epoch_begin_callbacks,
-                            epoch_end_callbacks=epoch_end_callbacks)
+                            epoch_end_callbacks=epoch_end_callbacks,
+                            stop_exhausted=stop_exhausted)
     else:
         if with_memory_cache:
             data_source = DataSourceWithMemoryCache(data_source,
                                                     shuffle=data_source.shuffle,
                                                     rng=rng)
         return DataIterator(data_source, batch_size,
+                            use_thread=use_thread,
                             epoch_begin_callbacks=epoch_begin_callbacks,
-                            epoch_end_callbacks=epoch_end_callbacks)
+                            epoch_end_callbacks=epoch_end_callbacks,
+                            stop_exhausted=stop_exhausted)
 
 
 def data_iterator_simple(load_func,
@@ -428,11 +472,13 @@ def data_iterator_simple(load_func,
                          batch_size,
                          shuffle=False,
                          rng=None,
-                         with_memory_cache=True,
-                         with_file_cache=True,
+                         use_thread=True,
+                         with_memory_cache=False,
+                         with_file_cache=False,
                          cache_dir=None,
                          epoch_begin_callbacks=[],
-                         epoch_end_callbacks=[]):
+                         epoch_end_callbacks=[],
+                         stop_exhausted=False):
     """A generator that ``yield`` s minibatch data as a tuple, as defined in ``load_func`` .
     It can unlimitedly yield minibatches at your request, queried from the provided data.
 
@@ -449,11 +495,15 @@ def data_iterator_simple(load_func,
              Default value is False. 
         rng (None or :obj:`numpy.random.RandomState`): Numpy random number
             generator.
+        use_thread (bool): 
+            If ``use_thread`` is set to True, iterator will use another thread to 
+            fetch data. If ``use_thread`` is set to False, iterator will use
+            current thread to fetch data.
         with_memory_cache (bool):
             If ``True``, use :py:class:`.data_source.DataSourceWithMemoryCache`
             to wrap ``data_source``. It is a good idea to set this as true unless
             data_source provides on-memory data.
-            Default value is True.
+            Default value is False.
         with_file_cache (bool):
             If ``True``, use :py:class:`.data_source.DataSourceWithFileCache`
             to wrap ``data_source``.
@@ -472,6 +522,9 @@ def data_iterator_simple(load_func,
         epoch_end_callbacks (list of functions): An item is a function
             which takes an epoch index as an argument. These are called
             at the end of an epoch.
+        stop_exhausted (bool): If ``stop_exhausted`` is set to False, iterator will be reset
+            so that iteration can be continued. If ``stop_exhausted`` is set to True, iterator
+            will raise StopIteration to stop the loop.
 
 
     Returns:
@@ -503,24 +556,28 @@ def data_iterator_simple(load_func,
                                           num_examples,
                                           shuffle=shuffle,
                                           rng=rng),
+                         use_thread=use_thread,
                          batch_size=batch_size,
                          with_memory_cache=with_memory_cache,
                          with_file_cache=with_file_cache,
                          cache_dir=cache_dir,
                          epoch_begin_callbacks=epoch_begin_callbacks,
-                         epoch_end_callbacks=epoch_end_callbacks)
+                         epoch_end_callbacks=epoch_end_callbacks,
+                         stop_exhausted=stop_exhausted)
 
 
 def data_iterator_csv_dataset(uri,
                               batch_size,
                               shuffle=False,
                               rng=None,
+                              use_thread=True,
                               normalize=True,
                               with_memory_cache=True,
                               with_file_cache=True,
                               cache_dir=None,
                               epoch_begin_callbacks=[],
-                              epoch_end_callbacks=[]):
+                              epoch_end_callbacks=[],
+                              stop_exhausted=False):
     '''data_iterator_csv_dataset
     Get data directly from a dataset provided as a CSV file.
 
@@ -540,6 +597,10 @@ def data_iterator_csv_dataset(uri,
              Default value is False. 
         rng (None or :obj:`numpy.random.RandomState`): Numpy random number
             generator.
+        use_thread (bool): 
+            If ``use_thread`` is set to True, iterator will use another thread to 
+            fetch data. If ``use_thread`` is set to False, iterator will use
+            current thread to fetch data.
         normalize (bool): If True, each sample in the data gets normalized by a factor of 255. 
             Default is True.
         with_memory_cache (bool):
@@ -565,6 +626,9 @@ def data_iterator_csv_dataset(uri,
         epoch_end_callbacks (list of functions): An item is a function
             which takes an epoch index as an argument. These are called
             at the end of an epoch.
+        stop_exhausted (bool): If ``stop_exhausted`` is set to False, iterator will be reset
+            so that iteration can be continued. If ``stop_exhausted`` is set to True, iterator
+            will raise StopIteration to stop the loop.
 
 
     Returns:
@@ -577,22 +641,26 @@ def data_iterator_csv_dataset(uri,
                        normalize=normalize)
 
     return data_iterator(ds,
+                         use_thread=use_thread,
                          batch_size=batch_size,
                          with_memory_cache=with_memory_cache,
                          with_file_cache=with_file_cache,
                          cache_dir=cache_dir,
                          epoch_begin_callbacks=epoch_begin_callbacks,
-                         epoch_end_callbacks=epoch_end_callbacks)
+                         epoch_end_callbacks=epoch_end_callbacks,
+                         stop_exhausted=stop_exhausted)
 
 
 def data_iterator_cache(uri,
                         batch_size,
                         shuffle=False,
                         rng=None,
+                        use_thread=True,
                         normalize=True,
                         with_memory_cache=True,
                         epoch_begin_callbacks=[],
-                        epoch_end_callbacks=[]):
+                        epoch_end_callbacks=[],
+                        stop_exhausted=False):
     '''data_iterator_cache
     Get data from the cache directory.
 
@@ -612,6 +680,10 @@ def data_iterator_cache(uri,
              Default value is False. 
         rng (None or :obj:`numpy.random.RandomState`): Numpy random number
             generator.
+        use_thread (bool): 
+            If ``use_thread`` is set to True, iterator will use another thread to 
+            fetch data. If ``use_thread`` is set to False, iterator will use
+            current thread to fetch data.
         normalize (bool): If True, each sample in the data gets normalized by a factor of 255. 
             Default is True.
         with_memory_cache (bool):
@@ -625,6 +697,9 @@ def data_iterator_cache(uri,
         epoch_end_callbacks (list of functions): An item is a function
             which takes an epoch index as an argument. These are called
             at the end of an epoch.
+        stop_exhausted (bool): If ``stop_exhausted`` is set to False, iterator will be reset
+            so that iteration can be continued. If ``stop_exhausted`` is set to True, iterator
+            will raise StopIteration to stop the loop.
 
 
     Returns:
@@ -637,21 +712,25 @@ def data_iterator_cache(uri,
                          normalize=normalize)
 
     return data_iterator(ds,
+                         use_thread=use_thread,
                          batch_size=batch_size,
                          with_memory_cache=with_memory_cache,
                          epoch_begin_callbacks=epoch_begin_callbacks,
-                         epoch_end_callbacks=epoch_end_callbacks)
+                         epoch_end_callbacks=epoch_end_callbacks,
+                         stop_exhausted=stop_exhausted)
 
 
 def data_iterator_concat_datasets(data_source_list,
                                   batch_size,
                                   shuffle=False,
                                   rng=None,
+                                  use_thread=True,
                                   with_memory_cache=True,
                                   with_file_cache=False,
                                   cache_dir=None,
                                   epoch_begin_callbacks=[],
-                                  epoch_end_callbacks=[]):
+                                  epoch_end_callbacks=[],
+                                  stop_exhausted=False):
     '''data_iterator_concat_datasets
     Get data from multiple datasets.
 
@@ -669,6 +748,10 @@ def data_iterator_concat_datasets(data_source_list,
              Default value is False. 
         rng (None or :obj:`numpy.random.RandomState`): Numpy random number
             generator.
+        use_thread (bool): 
+            If ``use_thread`` is set to True, iterator will use another thread to 
+            fetch data. If ``use_thread`` is set to False, iterator will use
+            current thread to fetch data.
         with_memory_cache (bool):
             If ``True``, use :py:class:`.data_source.DataSourceWithMemoryCache`
             to wrap ``data_source``. It is a good idea to set this as true unless
@@ -692,6 +775,9 @@ def data_iterator_concat_datasets(data_source_list,
         epoch_end_callbacks (list of functions): An item is a function
             which takes an epoch index as an argument. These are called
             at the end of an epoch.
+        stop_exhausted (bool): If ``stop_exhausted`` is set to False, iterator will be reset
+            so that iteration can be continued. If ``stop_exhausted`` is set to True, iterator
+            will raise StopIteration to stop the loop.
 
 
     Returns:
@@ -702,8 +788,10 @@ def data_iterator_concat_datasets(data_source_list,
                           shuffle=shuffle,
                           rng=rng)
     return data_iterator(ds,
+                         use_thread=use_thread,
                          batch_size=batch_size,
                          with_memory_cache=with_memory_cache,
                          with_file_cache=with_file_cache,
                          epoch_begin_callbacks=epoch_begin_callbacks,
-                         epoch_end_callbacks=epoch_end_callbacks)
+                         epoch_end_callbacks=epoch_end_callbacks,
+                         stop_exhausted=stop_exhausted)

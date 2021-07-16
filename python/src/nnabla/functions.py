@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -161,6 +162,97 @@ def min(x, axis=None, keepdims=False, with_index=False, only_index=False):
     return min_base(x, axis, keepdims, with_index, only_index, n_outputs)
 
 
+def norm(x, p=None, axis=None, keepdims=False):
+    r"""
+    Reduction along axes with norm operation.
+
+    .. math::
+        y = \|x\|_p = \left( \sum_i |x_i|^p \right)^{\frac{1}{p}}
+
+    Args:
+        x (Variable): An input variable.
+        p (float): Order of the norm.
+        axis (None, int or tuple of ints): Axis or axes along which product is
+            calculated. Passing the default value `None` will reduce all dimensions.
+        keepdims (bool): Flag whether the reduced axes are kept as a dimension with 1 element.
+
+    Returns:
+        ~nnabla.Variable: N-D array.
+
+    """
+    from .function_bases import norm as norm_base
+    if axis is None:
+        axis = range(x.ndim)
+    elif not hasattr(axis, '__iter__'):
+        axis = [axis]
+    return norm_base(x, p, axis, keepdims)
+
+
+def norm_normalization(x, p=None, axes=None, eps=1e-12):
+    r"""
+    Norm normalization.
+
+    .. math::
+        y = \frac{x_i}{\|x\|_p}
+
+    Args:
+        x(~nnabla.Variable): N-D array.
+        p(float): Order of the norm.
+            [default= `2` ]
+        axes(repeated int64): Axes to be reduced. If empty list is given, all dimensions are reduced.
+            [default= `range(x.ndim)` ]
+        eps(float): Epsilon for the normalization. This `eps` is added before taking the p-th root in the norm computation.
+            [default= `1e-12` ]
+
+    Returns:
+        ~nnabla.Variable: N-D array
+    """
+    from .function_bases import norm_normalization as norm_normalization_base
+    if axes is None:
+        axes = range(x.ndim)
+    elif not hasattr(axes, '__iter__'):
+        axes = [axes]
+    return norm_normalization_base(x, p, axes, eps)
+
+
+def spectral_norm(w, u, dim=0, itr=1, eps=1e-12, test=False, output_u=False):
+    r"""
+    Spectral Normalization.
+
+    .. math::
+
+        W_{sn} = \\frac{W}{\\sigma(W)}.
+
+    where :math:`W` is the input matrix, and the :math:`\\sigma(W)` is the spectral norm of :math:`W`. The spectral norm is approximately computed by the power iteration.
+
+    References:
+
+        Takeru Miyato, Toshiki Kataoka, Masanori Koyama, Yuichi Yoshida, 
+        "Spectral Normalization for Generative Adversarial Networks", 
+        International Conference on Learning Representations. 2018.
+
+    Args:
+        w(~nnabla.Variable): N-D array of learnable weights. This is normally network parameter.
+        u(~nnabla.Variable): 1-D array of singular vector. When `test == False`, the data region of `u` will be updated during forward calculation.
+        dim(int): Output dimension. Default is 0. If the dimension is not 0, then the specified dimension becomes the most-left dimension by transposing.
+            [default= `0` ]
+        itr(int): Number of power iterations. Default is 1.
+            [default= `1` ]
+        eps(float): Epsilon for the normalization. This `eps` is added before taking the sqrt in the norm computation.
+            [default= `1e-12` ]
+        test(bool): When in `True`, `u` will not be updated. Default is `False`.
+            [default= `False` ]
+        output_u(bool): Output original `u` or not. `u` is updated when `test == True` but you can get original `u` as output with this option. Default is `False`.
+            [default= `False` ]
+
+    Returns:
+        ~nnabla.Variable: Spectrally normalized :math:`W_{sn}` with the same shape as :math:`W`.
+    """
+    from .function_bases import spectral_norm as spectral_norm_base
+    n_outputs = 2 if output_u else 1
+    return spectral_norm_base(w, u, dim, itr, eps, test, output_u, n_outputs)
+
+
 def prod(x, axis=None, keepdims=False):
     """Reduction along axes with product operation.
 
@@ -205,6 +297,12 @@ def reduce(x, op='sum'):
     elif op == 'mean':
         return reduce_mean(x)
     raise ValueError()
+
+
+def meshgrid(*x, ij_indexing=False):
+
+    from .function_bases import meshgrid as meshgrid_base
+    return meshgrid_base(*x, ij_indexing=ij_indexing, n_outputs=len(x))
 
 
 def split(x, axis=0):
@@ -775,7 +873,7 @@ def interpolate(x, scale=None, output_size=None, mode='linear',
         raise ValueError('Either scale or output_size must be given')
     elif output_size is None:
         input_size = x.shape[-len(scale)-1:-1] if channel_last \
-          else x.shape[-len(scale):]
+            else x.shape[-len(scale):]
         output_size = [int(math.floor(s * d))
                        for d, s in zip(input_size, scale)]
     return interpolate_base(x, output_size, mode, align_corners, half_pixel, half_pixel_for_nn, channel_last)
@@ -885,6 +983,31 @@ def stft(x, window_size, stride, fft_size, window_type='hanning', center=True, p
         * :obj:`~nnabla.Variable`: Real part of STFT of size `batch_size x fft_size//2 + 1 x frame_size`.
         * :obj:`~nnabla.Variable`: Imaginary part of STFT of size `batch x fft_size//2 + 1 x frame_size`.
     """
+    from .function_bases import stft as stft_base
+    if window_type is None:
+        window_type = "rectangular"
+    return stft_base(x, window_size, stride, fft_size, window_type, center, pad_mode)
+
+
+def _stft_v1(x, window_size, stride, fft_size, window_type='hanning', center=True, pad_mode='reflect'):
+    """Computes the short-time Fourier transform
+
+    Args:
+        x (~nnabla.Variable): Time domain sequence of size `batch_size x sample_size`.
+        window_size (int): Size of STFT analysis window.
+        stride (int): Number of samples that we shift the window, also called `hop size`.
+        fft_size (int): Size of the FFT, the output will have `fft_size // 2+ 1` frequency bins.
+        window_type (str): Analysis window, can be either `hanning`, `hamming` or `rectangular`.
+            For convenience, also `window_type=None` is supported which is equivalent to `window_type='rectangular'`.
+        center (bool): If `True`, then the signal `x` is padded by half the FFT size using reflection padding.
+        pad_mode (str): Padding mode, which can be `'constant'` or `'reflect'`. `'constant'` pads with `0`.
+
+    Returns:
+        Returns real and imaginary parts of STFT result.
+
+        * :obj:`~nnabla.Variable`: Real part of STFT of size `batch_size x fft_size//2 + 1 x frame_size`.
+        * :obj:`~nnabla.Variable`: Imaginary part of STFT of size `batch x fft_size//2 + 1 x frame_size`.
+    """
     from nnabla.parameter import get_parameter, get_parameter_or_create
     conv_r = get_parameter('conv_r')
     conv_i = get_parameter('conv_i')
@@ -929,7 +1052,7 @@ def stft(x, window_size, stride, fft_size, window_type='hanning', center=True, p
         x = pad(x, (fft_size // 2, fft_size // 2), mode=pad_mode)
 
     # add channel dimension
-    x = reshape(x, (x.shape[0], 1, x.shape[1]), inplace=False)
+    x = reshape(x, (x.shape[0], 1, x.shape[1]))
 
     # compute STFT
     y_r = convolution(x, conv_r, stride=(stride,))
@@ -939,6 +1062,32 @@ def stft(x, window_size, stride, fft_size, window_type='hanning', center=True, p
 
 
 def istft(y_r, y_i, window_size, stride, fft_size, window_type='hanning', center=True):
+    """Computes the inverse shoft-time Fourier transform
+
+    Note: We use a constant square inverse window for the reconstruction
+    of the time-domain signal, therefore, the first and last
+    `window_size - stride` are not perfectly reconstructed.
+
+    Args:
+        y_r (~nnabla.Variable): Real part of STFT of size `batch_size x fft_size//2 + 1 x frame_size`.
+        y_i (~nnabla.Variable): Imaginary part of STFT of size `batch_size x fft_size//2 + 1 x frame_size`.
+        window_size (int): Size of STFT analysis window.
+        stride (int): Number of samples that we shift the window, also called `hop size`.
+        fft_size (int): Size of the FFT, (STFT has `fft_size // 2 + 1` frequency bins).
+        window_type (str): Analysis window, can be either `hanning`, `hamming` or `rectangular`.
+            For convenience, also `window_type=None` is supported which is equivalent to `window_type='rectangular'`.
+        center (bool): If `True`, then it is assumed that the time-domain signal has centered frames.
+
+    Returns:
+        ~nnabla.Variable: Time domain sequence of size `batch_size x sample_size`.
+    """
+    from .function_bases import istft as istft_base
+    if window_type is None:
+        window_type = "rectangular"
+    return istft_base(y_r, y_i, window_size, stride, fft_size, window_type, center)
+
+
+def _istft_v1(y_r, y_i, window_size, stride, fft_size, window_type='hanning', center=True):
     """Computes the inverse shoft-time Fourier transform
 
     Note: We use a constant square inverse window for the reconstruction
@@ -1004,9 +1153,9 @@ def istft(y_r, y_i, window_size, stride, fft_size, window_type='hanning', center
         mat_sin = mat_sin * window_func / inv_window_func
 
         conv_cos = get_parameter_or_create(
-            'conv_sin', initializer=mat_cos, need_grad=False)
+            'conv_cos', initializer=mat_cos, need_grad=False)
         conv_sin = get_parameter_or_create(
-            'conv_cos', initializer=mat_sin, need_grad=False)
+            'conv_sin', initializer=mat_sin, need_grad=False)
 
     # compute inverse STFT
     x_cos = deconvolution(y_r, conv_cos, stride=(stride,))
@@ -1018,6 +1167,62 @@ def istft(y_r, y_i, window_size, stride, fft_size, window_type='hanning', center
         x = x[:, fft_size//2:-fft_size//2]
 
     return x
+
+
+def dropout(x, p=0.5, seed=-1, output_mask=False):
+    r"""Dropout.
+    Samples a number :math:`u` from a uniform distribution in :math:`[0, 1]`,
+    and ignores the input if :math:`u \leq p`.
+
+    .. math::
+
+        \begin{equation}
+            y = \left\{
+            \begin{array}{ll}
+                \frac{x}{1 - p} & (u > p) \\
+                0 & ({\rm otherwise})
+            \end{array} \right.
+        \end{equation}
+
+    Args:
+        x (Variable): An input variable.
+        p (float): math:`p` in definition. [default= `0.5` ]
+        seed (int): Random seed. When -1, seed is sampled from global random number generator. [default= `-1` ]
+        output_mask (bool): Whether or not to output mask. [default= `False` ]
+
+    Returns:
+        ~nnabla.Variable: N-D array.
+
+    Note:
+        Usually dropout only applied during training as below
+        (except `MC dropout`_). If you want to use dropout as an MC dropout, remove `if train:`.
+
+        .. code-block:: python
+
+            h = PF.affine(x, num_hidden)
+            if train:
+                h = F.dropout(h, 0.5)
+
+        reference: https://arxiv.org/abs/1506.02142
+
+    Note:
+        If you use nn.grad to a graph having dropout, you must set output_mask=True for all dropouts.
+        Otherwise, backward function of dropout raises ValueError when you call nn.grad.
+
+        .. code-block:: python
+
+            h = PF.affine(x, num_hidden)
+            h, mask = F.dropout(h, p=0.1, output_mask=True)
+            y = PF.affine(h, num_hidden)
+
+            grad = nn.grad([y], nn.get_parameters().values())
+
+
+    """
+    from .function_bases import dropout as dropout_base
+
+    n_outputs = 2 if output_mask else 1
+    return dropout_base(x, p, seed, output_mask, n_outputs)
 
 
 def gather_nd(data, indices):
@@ -1140,17 +1345,55 @@ def scatter_nd(data, indices, shape=None, out=None):
     if shape and out:
         raise TypeError("Only one of `shape` or `out` argument may be used.")
     if out:
-        if isinstance(out, nn.Variable):
-            out = out.data
-        if not isinstance(out, nn.NdArray):
+        if not isinstance(out, (nn.Variable, nn.NdArray)):
             raise TypeError("`out` argument must be NdArray or Variable type.")
         shape = out.shape
-        outputs = [out]
-    else:
-        if isinstance(shape, np.ndarray):
-            shape = shape.tolist()
-        outputs = None
-    return scatter_nd_base(data, indices, shape, outputs=outputs)
+    elif isinstance(shape, np.ndarray):
+        shape = shape.tolist()
+    return scatter_nd_base(data, indices, out, shape)
+
+
+def scatter_add(x0, indices, x1, axis=None):
+    '''Add all values from `x1` into the `x0` according to index specified by `indices`.
+    This function adds `x1` into the copy of `x0` and outputs the copy.
+    The original `x0` will not be changed.
+    `x0`, `indices` and `x1` must have same number of dimensions.
+
+    The forward of :func:`~nnabla.functions.scatter_add` is equivalent to:
+
+    .. code-block:: python
+
+      def scatter_add(x0, indices, x1, axis):
+          # Assuming each input is 3 dimensional
+          import numpy as np
+          output = np.copy(x0)
+          for i in range(indices.shape[0]):
+              for j in range(indices.shape[1]):
+                  for k in range(indices.shape[2]):
+                      if axis == 0:
+                          output[indices[i][j][k]][j][k] += x1[i][j][k]
+                      elif axis == 1:
+                          output[i][indices[i][j][k]][k] += x1[i][j][k]
+                      elif axis == 2:
+                          output[i][j][indices[i][j][k]] += x1[i][j][k]
+          return output
+
+    Args:
+        x0(~nnabla.Variable): N-D array which the data is added to its copy.
+        indices(~nnabla.Variable): N-D array scatter indices. 
+          The size of each dimension must be equal or smaller than that of x0 except for the specified axis. 
+          The value of indices must be smaller than the size of specified axis' dimension of x0. 
+          The size of each dimension must be equal or smaller than that of x1. 
+          Indices must not be negative.
+        x1(~nnabla.Variable): N-D array which is scattered and added to x0.
+        axis(int): Axis along which to index. The axis must not exceed the inputs' dimension.
+            [default= `0` ]
+
+    Returns:
+        ~nnabla.Variable: N-D array which contains the result of scatter addition. The shape is same as x0.
+    '''
+    from .function_bases import scatter_add as scatter_add_base
+    return scatter_add_base(x0, indices, x1, axis)
 
 
 def multi_head_attention(query, key, value, num_heads, q_weight, k_weight, v_weight, out_weight, q_bias=None, k_bias=None, v_bias=None, out_bias=None, attn_bias_k=None, attn_bias_v=None, dropout=0.0, additive_mask=None, key_padding_mask=None):
@@ -1247,7 +1490,7 @@ def multi_head_attention(query, key, value, num_heads, q_weight, k_weight, v_wei
     # attn_output_weights: (B*H, L_T, L_S)
     attn_output_weights = F.batch_matmul(q, k, transpose_b=True)
     assert list(attn_output_weights.shape) == [
-                batch_size * num_heads, tgt_len, src_len]
+        batch_size * num_heads, tgt_len, src_len]
 
     if additive_mask is not None:
         additive_mask = F.reshape(additive_mask, ((1,) + additive_mask.shape))
@@ -1275,7 +1518,7 @@ def multi_head_attention(query, key, value, num_heads, q_weight, k_weight, v_wei
     # (B*H, L_T, L_S) x (B*H, L_S, head_vdim) --> (B*H, L_T, head_vdim)
     attn_output = F.batch_matmul(attn_output_weights, v)
     assert list(attn_output.shape) == [
-                batch_size * num_heads, tgt_len, head_vdim]
+        batch_size * num_heads, tgt_len, head_vdim]
     attn_output = F.reshape(F.transpose(
         attn_output, (1, 0, 2)), (tgt_len, batch_size, v_embed_dim))  # attn_output: (L_T, B, E_v)
 

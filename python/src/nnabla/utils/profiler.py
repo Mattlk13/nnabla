@@ -1,4 +1,5 @@
-# Copyright (c) 2018 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -237,6 +238,7 @@ class GraphProfiler:
 
         # warm-up
         execution(*execution_args)
+        self.ext_module.synchronize(device_id=self.device_id)
 
         start_0 = time.time()
         for i in range(self.n_run):

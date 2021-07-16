@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,11 +24,12 @@ using std::make_shared;
 vector<NdArrayPtr> execute(FunctionPtr func, const vector<NdArrayPtr> &inputs,
                            int n_outputs, vector<NdArrayPtr> outputs) {
   // Check inplace outputs size.
-  NBLA_CHECK(outputs.size() <= n_outputs, error_code::value,
+  NBLA_CHECK(outputs.size() <= static_cast<unsigned>(n_outputs),
+             error_code::value,
              "Num of in-place arrays must not be greater than n_outputs. "
              "In-place arrays: %d <= n_outputs: %d",
              outputs.size(), n_outputs);
-  if (outputs.size() != n_outputs) {
+  if (outputs.size() != static_cast<unsigned>(n_outputs)) {
     outputs.resize(n_outputs, nullptr);
   }
 
@@ -40,7 +41,7 @@ vector<NdArrayPtr> execute(FunctionPtr func, const vector<NdArrayPtr> &inputs,
   // Function inputs and outputs must be Variables.
   vector<VariablePtr> vinputs(inputs.size());
   vector<VariablePtr> voutputs(outputs.size());
-  for (int i = 0; i < inputs.size(); ++i) {
+  for (unsigned int i = 0; i < inputs.size(); ++i) {
     vinputs[i] = make_shared<Variable>(inputs[i]);
   }
   for (int i = 0; i < n_outputs; ++i) {
@@ -53,7 +54,7 @@ vector<NdArrayPtr> execute(FunctionPtr func, const vector<NdArrayPtr> &inputs,
   func->setup(finputs, foutputs);
 
   // Set inplace buffer to function output buffer if size matches.
-  for (int i = 0; i < outputs.size(); ++i) {
+  for (unsigned int i = 0; i < outputs.size(); ++i) {
     if (!outputs[i]) {
       outputs[i] = foutputs[i]->data();
     }
@@ -72,5 +73,14 @@ vector<NdArrayPtr> execute(FunctionPtr func, const vector<NdArrayPtr> &inputs,
 void execute(FunctionPtr f, const Variables &inputs, const Variables &outputs) {
   f->setup(inputs, outputs);
   f->forward(inputs, outputs);
+}
+
+void backward(FunctionPtr f, const Variables &inputs, const Variables &outputs,
+              const vector<bool> &propagate_down, const vector<bool> &accum,
+              bool with_setup) {
+  if (with_setup) {
+    f->setup(inputs, outputs);
+  }
+  f->backward(inputs, outputs, propagate_down, accum);
 }
 }

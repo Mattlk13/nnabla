@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ def ref_crelu(x, axis):
 
 
 @pytest.mark.parametrize("ctx, func_name", ctxs)
-@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("axis", [0, 1, 2, -1, -2, -3])
 @pytest.mark.parametrize("seed", [313])
 def test_crelu_forward_backward(seed, axis, ctx, func_name):
     from nbla_test_utils import cap_ignore_region, function_tester
@@ -39,7 +39,7 @@ def test_crelu_forward_backward(seed, axis, ctx, func_name):
 
 
 @pytest.mark.parametrize("ctx, func_name", ctxs)
-@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("axis", [0, 1, 2, -1, -2, -3])
 @pytest.mark.parametrize("seed", [313])
 def test_crelu_double_backward(seed, axis, ctx, func_name):
     from nbla_test_utils import cap_ignore_region, backward_function_tester
@@ -48,5 +48,4 @@ def test_crelu_double_backward(seed, axis, ctx, func_name):
         cap_ignore_region(
             rng.randn(2, 3, 4).astype(np.float32) * 2,
             (-1e-3, 1e-3))]
-    backward_function_tester(rng, F.crelu, None, inputs, func_args=[axis],
-                             ctx=ctx, func_name=func_name, atol_b=1e-3, atol_accum=1e-3)
+    backward_function_tester(rng, F.crelu, inputs, func_args=[axis], ctx=ctx)

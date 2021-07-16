@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ def ref_categorical_cross_entropy(x, l, axis):
 
 @pytest.mark.parametrize("ctx, func_name", ctxs)
 @pytest.mark.parametrize("seed", [313])
-@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("axis", [0, 1, 2, -1, -2, -3])
 def test_categorical_cross_entropy_forward_backward(seed, axis, ctx, func_name):
     from nbla_test_utils import function_tester
     ishape = [2, 3, 4]
@@ -54,7 +54,7 @@ def test_categorical_cross_entropy_forward_backward(seed, axis, ctx, func_name):
 
 @pytest.mark.parametrize("ctx, func_name", ctxs)
 @pytest.mark.parametrize("seed", [313])
-@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("axis", [0, 1, 2, -1, -2, -3])
 def test_categorical_cross_entropy_double_backward(seed, axis, ctx, func_name):
     from nbla_test_utils import backward_function_tester
     ishape = [2, 3, 4]
@@ -65,11 +65,11 @@ def test_categorical_cross_entropy_double_backward(seed, axis, ctx, func_name):
     n_class = ishape[axis]
 
     inputs = [
-        rng.rand(2, 3, 4).astype(np.float32) * 0.9 + 0.05,
+        rng.rand(2, 3, 4).astype(np.float32) * 5,
         rng.randint(0, n_class, size=l_shape).astype(np.int)]
 
     backward_function_tester(rng, F.categorical_cross_entropy,
-                             ref_categorical_cross_entropy, inputs,
-                             atol_b=5e-2, atol_accum=5e-2, dstep=1e-3,
+                             inputs,
+                             atol_accum=1e-1, dstep=1e-3,
                              func_args=[axis],
-                             backward=[True, False], ctx=ctx, func_name=func_name)
+                             backward=[True, False], ctx=ctx)

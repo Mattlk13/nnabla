@@ -1,4 +1,4 @@
-# Copyright (c) 2018 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 
 import pytest
 import numpy as np
+import nnabla as nn
 import nnabla.functions as F
 from nbla_test_utils import list_context, function_tester
 
@@ -59,7 +60,7 @@ def ref_sort_bw(*args, **kwargs):
 @pytest.mark.parametrize("with_index", [False, True])
 @pytest.mark.parametrize("only_index", [False, True])
 @pytest.mark.parametrize("ishape, axis", [
-    ((2, 3, 4), -1), ((2, 3, 4), 0), ((2, 3, 4), 1), ((2, 3, 4), 2),
+    ((2, 3, 4), -1), ((2, 3, 4), -2), ((2, 3, 4), 0), ((2, 3, 4), 1), ((2, 3, 4), 2),
     ((100,), 0), ((1, 100), -1), ((1, 100), 0), ((2, 3, 4, 3, 2), 2),
 ])
 def test_forward_backward(seed, ishape, axis, reverse, with_index, only_index,
@@ -69,3 +70,13 @@ def test_forward_backward(seed, ishape, axis, reverse, with_index, only_index,
     function_tester(rng, F.sort, ref_sort_fw, inputs, ctx=ctx, func_name=fname,
                     func_args=[axis, reverse, with_index, only_index],
                     ref_grad=ref_sort_bw)
+
+
+@pytest.mark.parametrize("ctx, fname", ctxs)
+@pytest.mark.parametrize("reverse", [False, True])
+def test_equal_values(ctx, fname, reverse):
+    with nn.context_scope(ctx), nn.auto_forward(True):
+        x = nn.Variable.from_numpy_array([2, 3, 3, 4, 2])
+        y, i = F.sort(x, reverse=reverse, with_index=True)
+        assert all(y.d == ([4, 3, 3, 2, 2] if reverse else [2, 2, 3, 3, 4]))
+        assert all(i.d == ([3, 1, 2, 0, 4] if reverse else [0, 4, 1, 2, 3]))

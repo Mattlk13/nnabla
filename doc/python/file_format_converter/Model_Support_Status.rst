@@ -26,18 +26,18 @@ Count 11/12
     ===================================  =======  ==========================================================
                    Name                  Support                             Memo                           
     ===================================  =======  ==========================================================
-    resnet50_model_                         ✓                                                               
-    zfnet512_model_                         ✓                                                               
-    inception_v2_model_                     ✓                                                               
-    inception_v1_model_                     X     The `edge` mode of the `pad` in nnabla is not implemented.
+    bvlc_alexnet_model_                     ✓                                                               
+    bvlc_googlenet_model_                   ✓                                                               
     bvlc_reference_caffenet_model_          ✓                                                               
     bvlc_reference_rcnn_ilsvrc13_model_     ✓                                                               
-    squeezenet_model_                       ✓                                                               
-    bvlc_alexnet_model_                     ✓                                                               
-    shufflenet_model_                       ✓                                                               
-    vgg19_model_                            ✓                                                               
     densenet121_model_                      ✓                                                               
-    bvlc_googlenet_model_                   ✓                                                               
+    inception_v1_model_                     X     The `edge` mode of the `pad` in nnabla is not implemented.
+    inception_v2_model_                     ✓                                                               
+    resnet50_model_                         ✓                                                               
+    shufflenet_model_                       ✓                                                               
+    squeezenet_model_                       ✓                                                               
+    vgg19_model_                            ✓                                                               
+    zfnet512_model_                         ✓                                                               
     ===================================  =======  ==========================================================
 
 
@@ -50,7 +50,7 @@ Export
 - ✓: Support to convert
 - X: Not support
 
-Total: 58/65
+Total: 59/65
 
 ONNX Export Sample Test(nnp --> onnx)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -61,96 +61,96 @@ Count 34/37
     ================================  =======  =======================================================
                   Name                Support                           Memo                          
     ================================  =======  =======================================================
+    01_logistic_regression_10_           ✓                                                            
+    01_logistic_regression_9_            ✓                                                            
+    02_binary_cnn_15_                    ✓                                                            
     02_binary_cnn_16_                    ✓                                                            
+    06_auto_encoder_17_                  ✓                                                            
+    06_auto_encoder_18_                  ✓                                                            
+    10_deep_mlp_13_                      ✓                                                            
+    10_deep_mlp_14_                      ✓                                                            
+    11_deconvolution_11_                 ✓                                                            
+    11_deconvolution_12_                 ✓                                                            
+    12_residual_learning_19_             ✓                                                            
+    12_residual_learning_20_             ✓                                                            
+    LSTM_auto_encoder_23_                ✓                                                            
+    LSTM_auto_encoder_24_                ✓                                                            
+    LeNet_35_                            ✓                                                            
+    LeNet_36_                            ✓                                                            
+    bidirectional_elman_net_25_          ✓                                                            
+    bidirectional_elman_net_26_          ✓                                                            
+    binary_connect_mnist_LeNet_5_        ✓                                                            
+    binary_connect_mnist_MLP_8_          ✓                                                            
+    binary_net_mnist_LeNet_7_            ✓                                                            
+    binary_net_mnist_MLP_4_              ✓                                                            
+    binary_weight_mnist_MLP_6_           ✓                                                            
+    elman_net_21_                        ✓                                                            
+    elman_net_22_                        ✓                                                            
+    elman_net_with_attention_33_         ✓                                                            
+    elman_net_with_attention_34_         ✓                                                            
+    gated_recurrent_unitGRU_31_          ✓                                                            
+    gated_recurrent_unitGRU_32_          ✓                                                            
     long_short_term_memoryLSTM_29_       ✓                                                            
     long_short_term_memoryLSTM_30_       ✓                                                            
-    10_deep_mlp_13_                      ✓                                                            
-    01_logistic_regression_10_           ✓                                                            
-    stacked_GRU_27_                      ✓                                                            
-    gated_recurrent_unitGRU_31_          ✓                                                            
-    LeNet_35_                            ✓                                                            
-    mnist_vae_3_                         ✓                                                            
-    binary_connect_mnist_MLP_8_          ✓                                                            
-    12_residual_learning_20_             ✓                                                            
-    elman_net_with_attention_34_         ✓                                                            
-    11_deconvolution_11_                 ✓                                                            
-    semi_supervised_learning_VAT_37_     X     NNP with only a single executor is currently supported.
-    binary_connect_mnist_LeNet_5_        ✓                                                            
-    bidirectional_elman_net_25_          ✓                                                            
-    elman_net_22_                        ✓                                                            
-    bidirectional_elman_net_26_          ✓                                                            
-    binary_net_mnist_MLP_4_              ✓                                                            
-    06_auto_encoder_17_                  ✓                                                            
-    stacked_GRU_28_                      ✓                                                            
-    binary_weight_mnist_MLP_6_           ✓                                                            
-    gated_recurrent_unitGRU_32_          ✓                                                            
-    mnist_dcgan_with_label_2_            X     NNabla converter error, will be fixed in the future.   
-    11_deconvolution_12_                 ✓                                                            
     mnist_dcgan_with_label_1_            X     NNabla converter error, will be fixed in the future.   
-    LSTM_auto_encoder_24_                ✓                                                            
-    02_binary_cnn_15_                    ✓                                                            
-    01_logistic_regression_9_            ✓                                                            
-    12_residual_learning_19_             ✓                                                            
-    LeNet_36_                            ✓                                                            
-    elman_net_21_                        ✓                                                            
-    10_deep_mlp_14_                      ✓                                                            
-    LSTM_auto_encoder_23_                ✓                                                            
-    elman_net_with_attention_33_         ✓                                                            
-    binary_net_mnist_LeNet_7_            ✓                                                            
-    06_auto_encoder_18_                  ✓                                                            
+    mnist_dcgan_with_label_2_            X     NNabla converter error, will be fixed in the future.   
+    mnist_vae_3_                         ✓                                                            
+    semi_supervised_learning_VAT_37_     X     NNP with only a single executor is currently supported.
+    stacked_GRU_27_                      ✓                                                            
+    stacked_GRU_28_                      ✓                                                            
     ================================  =======  =======================================================
 
 
 ONNX Export Pretrained Model Test(nnp --> onnx)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Count 18/18
+Count 17/18
  
 
     ======================  =======  ====
              Name           Support  Memo
     ======================  =======  ====
-    ShuffleNet-0.5x_2_202_     ✓         
-    GoogLeNet_4_142_           ✓         
     AlexNet_                   ✓         
-    Resnet-34_4_128_           ✓         
-    Resnet-101_4_348_          ✓         
-    SqueezeNet-1.0_2_70_       ✓         
-    VGG-11_                    ✓         
-    Resnet-50_4_178_           ✓         
-    Xception_                  ✓         
-    VGG-13_                    ✓         
+    DenseNet-161_2_570_        ✓         
+    GoogLeNet_4_142_           ✓         
     MobileNet_1_86_            ✓         
-    SqueezeNet-1.1_2_70_       ✓         
-    ShuffleNet_2_202_          ✓         
-    VGG-16_                    ✓         
+    NIN_                       X         
+    Resnet-101_4_348_          ✓         
     Resnet-152_4_518_          ✓         
     Resnet-18_3_71_            ✓         
-    NIN_                       ✓         
-    DenseNet-161_2_570_        ✓         
+    Resnet-34_4_128_           ✓         
+    Resnet-50_4_178_           ✓         
+    ShuffleNet-0.5x_2_202_     ✓         
+    ShuffleNet_2_202_          ✓         
+    SqueezeNet-1.0_2_70_       ✓         
+    SqueezeNet-1.1_2_70_       ✓         
+    VGG-11_                    ✓         
+    VGG-13_                    ✓         
+    VGG-16_                    ✓         
+    Xception_                  ✓         
     ======================  =======  ====
 
 
 ONNX Export Example Model Test(nnp --> onnx)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Count 6/10
+Count 8/10
  
 
-    ==================  =======  ====================================================
-           Name         Support                          Memo                        
-    ==================  =======  ====================================================
-    yolov2_                ✓                                                         
-    word_embedding_        ✓                                                         
-    classification_        ✓                                                         
-    meta_learning_         X     Failed to compare inferring result.                 
-    deeplabv3plus_         X     The `Interpolate` is currently not supported.       
-    pix2pix_               ✓                                                         
-    siamese_embedding_     ✓                                                         
-    cycle_gan_             ✓                                                         
-    capsules_              X     NNabla converter error, will be fixed in the future.
-    wavenet_               X     The `onehot` dimension != 2 is not supported.       
-    ==================  =======  ====================================================
+    ==================  =======  =============================================
+           Name         Support                      Memo                     
+    ==================  =======  =============================================
+    capsules_              ✓                                                  
+    classification_        ✓                                                  
+    cycle_gan_             ✓                                                  
+    deeplabv3plus_         ✓                                                  
+    meta_learning_         X                                                  
+    pix2pix_               ✓                                                  
+    siamese_embedding_     ✓                                                  
+    wavenet_               X     The `onehot` dimension != 2 is not supported.
+    word_embedding_        ✓                                                  
+    yolov2_                ✓                                                  
+    ==================  =======  =============================================
 
 
 
@@ -165,28 +165,34 @@ Import
 - ✓: Support to convert
 - X: Not support
 
-Total: 3/10
+Total: 15/16
 
-Tensorflow Import Sample Test(pb --> nnp)
+Tensorflow Import Sample Test(tf --> nnp)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Count 3/10
+Count 15/16
  
 
-    ======================================  =======  ===============================================================================
-                     Name                   Support                                       Memo                                      
-    ======================================  =======  ===============================================================================
-    fc-layers_frozen_                          ✓                                                                                    
-    ae0_frozen_                                ✓                                                                                    
-    mobilenet_v1_0.75_192_                     X     The `edge` mode of the pad function in nnabla is not implemented.              
-    conv-layers_frozen_                        X     Failed to convert from tensorflow to onnx, `Bias` should be 1D, but actual n-D.
-    mobilenet_v1_1.0_224_                      X     The `edge` mode of the pad function in nnabla is not implemented.              
-    inception_resnet_v2_2016_08_30_frozen_     X     Failed to convert from tensorflow to onnx, `Bias` should be 1D, but actual n-D.
-    inception_v4_2016_09_09_frozen_            ✓                                                                                    
-    lstm_frozen_                               X     The `Shape` is currently not supported to convert by nnabla.                   
-    inception_v1_2016_08_28_frozen_            X     the `edge` mode of the `pad` in nnabla is not implemented.                     
-    inception_v3_2016_08_28_frozen_            X     Failed to convert from tensorflow to onnx, `Bias` should be 1D, but actual n-D.
-    ======================================  =======  ===============================================================================
+    ======================================  =======  ============================================================
+                     Name                   Support                              Memo                            
+    ======================================  =======  ============================================================
+    AlexNet_                                   ✓                                                                 
+    GoogLeNet_                                 ✓                                                                 
+    LeNet_5_                                   ✓                                                                 
+    ResNet50_                                  ✓                                                                 
+    VGG16_                                     ✓                                                                 
+    ZFNet_                                     ✓                                                                 
+    ae0_frozen_                                ✓                                                                 
+    conv-layers_frozen_                        ✓                                                                 
+    fc-layers_frozen_                          ✓                                                                 
+    inception_resnet_v2_2016_08_30_frozen_     ✓                                                                 
+    inception_v1_2016_08_28_frozen_            ✓                                                                 
+    inception_v3_2016_08_28_frozen_            ✓                                                                 
+    inception_v4_2016_09_09_frozen_            ✓                                                                 
+    lstm_frozen_                               X     The `Shape` is currently not supported to convert by nnabla.
+    mobilenet_v1_0.75_192_                     ✓                                                                 
+    mobilenet_v1_1.0_224_                      ✓                                                                 
+    ======================================  =======  ============================================================
 
 
 
@@ -198,9 +204,9 @@ Export
 - ✓: Support to convert
 - X: Not support
 
-Total: 58/65
+Total: 59/65
 
-Tensorflow Export Sample Test(nnp --> pb)
+Tensorflow Export Sample Test(nnp --> tf)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Count 34/37
@@ -209,96 +215,212 @@ Count 34/37
     ================================  =======  =======================================================
                   Name                Support                           Memo                          
     ================================  =======  =======================================================
+    01_logistic_regression_10_           ✓                                                            
+    01_logistic_regression_9_            ✓                                                            
+    02_binary_cnn_15_                    ✓                                                            
     02_binary_cnn_16_                    ✓                                                            
+    06_auto_encoder_17_                  ✓                                                            
+    06_auto_encoder_18_                  ✓                                                            
+    10_deep_mlp_13_                      ✓                                                            
+    10_deep_mlp_14_                      ✓                                                            
+    11_deconvolution_11_                 ✓                                                            
+    11_deconvolution_12_                 ✓                                                            
+    12_residual_learning_19_             ✓                                                            
+    12_residual_learning_20_             ✓                                                            
+    LSTM_auto_encoder_23_                ✓                                                            
+    LSTM_auto_encoder_24_                ✓                                                            
+    LeNet_35_                            ✓                                                            
+    LeNet_36_                            ✓                                                            
+    bidirectional_elman_net_25_          ✓                                                            
+    bidirectional_elman_net_26_          ✓                                                            
+    binary_connect_mnist_LeNet_5_        ✓                                                            
+    binary_connect_mnist_MLP_8_          ✓                                                            
+    binary_net_mnist_LeNet_7_            ✓                                                            
+    binary_net_mnist_MLP_4_              ✓                                                            
+    binary_weight_mnist_MLP_6_           ✓                                                            
+    elman_net_21_                        ✓                                                            
+    elman_net_22_                        ✓                                                            
+    elman_net_with_attention_33_         ✓                                                            
+    elman_net_with_attention_34_         ✓                                                            
+    gated_recurrent_unitGRU_31_          ✓                                                            
+    gated_recurrent_unitGRU_32_          ✓                                                            
     long_short_term_memoryLSTM_29_       ✓                                                            
     long_short_term_memoryLSTM_30_       ✓                                                            
-    10_deep_mlp_13_                      ✓                                                            
-    01_logistic_regression_10_           ✓                                                            
-    stacked_GRU_27_                      ✓                                                            
-    gated_recurrent_unitGRU_31_          ✓                                                            
-    LeNet_35_                            ✓                                                            
-    mnist_vae_3_                         ✓                                                            
-    binary_connect_mnist_MLP_8_          ✓                                                            
-    12_residual_learning_20_             ✓                                                            
-    elman_net_with_attention_34_         ✓                                                            
-    11_deconvolution_11_                 ✓                                                            
-    semi_supervised_learning_VAT_37_     X     NNP with only a single executor is currently supported.
-    binary_connect_mnist_LeNet_5_        ✓                                                            
-    bidirectional_elman_net_25_          ✓                                                            
-    elman_net_22_                        ✓                                                            
-    bidirectional_elman_net_26_          ✓                                                            
-    binary_net_mnist_MLP_4_              ✓                                                            
-    06_auto_encoder_17_                  ✓                                                            
-    stacked_GRU_28_                      ✓                                                            
-    binary_weight_mnist_MLP_6_           ✓                                                            
-    gated_recurrent_unitGRU_32_          ✓                                                            
-    mnist_dcgan_with_label_2_            X     NNabla converter error, will be fixed in the future.   
-    11_deconvolution_12_                 ✓                                                            
     mnist_dcgan_with_label_1_            X     NNabla converter error, will be fixed in the future.   
-    LSTM_auto_encoder_24_                ✓                                                            
-    02_binary_cnn_15_                    ✓                                                            
-    01_logistic_regression_9_            ✓                                                            
-    12_residual_learning_19_             ✓                                                            
-    LeNet_36_                            ✓                                                            
-    elman_net_21_                        ✓                                                            
-    10_deep_mlp_14_                      ✓                                                            
-    LSTM_auto_encoder_23_                ✓                                                            
-    elman_net_with_attention_33_         ✓                                                            
-    binary_net_mnist_LeNet_7_            ✓                                                            
-    06_auto_encoder_18_                  ✓                                                            
+    mnist_dcgan_with_label_2_            X     NNabla converter error, will be fixed in the future.   
+    mnist_vae_3_                         ✓                                                            
+    semi_supervised_learning_VAT_37_     X     NNP with only a single executor is currently supported.
+    stacked_GRU_27_                      ✓                                                            
+    stacked_GRU_28_                      ✓                                                            
     ================================  =======  =======================================================
 
 
-Tensorflow Export Pretrained Models(nnp --> pb)
+Tensorflow Export Pretrained Models(nnp --> tf)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Count 18/18
+Count 17/18
  
 
     ======================  =======  ====
              Name           Support  Memo
     ======================  =======  ====
-    ShuffleNet-0.5x_2_202_     ✓         
-    GoogLeNet_4_142_           ✓         
     AlexNet_                   ✓         
-    Resnet-34_4_128_           ✓         
-    Resnet-101_4_348_          ✓         
-    SqueezeNet-1.0_2_70_       ✓         
-    VGG-11_                    ✓         
-    Resnet-50_4_178_           ✓         
-    Xception_                  ✓         
-    VGG-13_                    ✓         
+    DenseNet-161_2_570_        ✓         
+    GoogLeNet_4_142_           ✓         
     MobileNet_1_86_            ✓         
-    SqueezeNet-1.1_2_70_       ✓         
-    ShuffleNet_2_202_          ✓         
-    VGG-16_                    ✓         
+    NIN_                       X         
+    Resnet-101_4_348_          ✓         
     Resnet-152_4_518_          ✓         
     Resnet-18_3_71_            ✓         
-    NIN_                       ✓         
-    DenseNet-161_2_570_        ✓         
+    Resnet-34_4_128_           ✓         
+    Resnet-50_4_178_           ✓         
+    ShuffleNet-0.5x_2_202_     ✓         
+    ShuffleNet_2_202_          ✓         
+    SqueezeNet-1.0_2_70_       ✓         
+    SqueezeNet-1.1_2_70_       ✓         
+    VGG-11_                    ✓         
+    VGG-13_                    ✓         
+    VGG-16_                    ✓         
+    Xception_                  ✓         
     ======================  =======  ====
 
 
-Tensorflow Export Example Models(nnp --> pb)
+Tensorflow Export Example Models(nnp --> tf)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Count 6/10
+Count 8/10
  
 
-    ==================  =======  ====================================================
-           Name         Support                          Memo                        
-    ==================  =======  ====================================================
-    yolov2_                ✓                                                         
-    word_embedding_        ✓                                                         
-    classification_        ✓                                                         
-    meta_learning_         X     Failed to compare inferring result.                 
-    deeplabv3plus_         X     The `Interpolate` is currently not supported.       
-    pix2pix_               ✓                                                         
-    siamese_embedding_     ✓                                                         
-    cycle_gan_             ✓                                                         
-    capsules_              X     NNabla converter error, will be fixed in the future.
-    wavenet_               X     The `onehot` dimension != 2 is not supported.       
-    ==================  =======  ====================================================
+    ==================  =======  =============================================
+           Name         Support                      Memo                     
+    ==================  =======  =============================================
+    capsules_              ✓                                                  
+    classification_        ✓                                                  
+    cycle_gan_             ✓                                                  
+    deeplabv3plus_         ✓                                                  
+    meta_learning_         X                                                  
+    pix2pix_               ✓                                                  
+    siamese_embedding_     ✓                                                  
+    wavenet_               X     The `onehot` dimension != 2 is not supported.
+    word_embedding_        ✓                                                  
+    yolov2_                ✓                                                  
+    ==================  =======  =============================================
+
+
+
+
+Tensorflow Lite Support Status
+==============================
+
+
+Export
+------
+
+- ✓: Support to convert
+- X: Not support
+
+Total: 45/65
+
+Tensorflow Lite Export Sample Test(nnp --> tflite)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Count 32/37
+ 
+
+    ================================  =======  ====
+                  Name                Support  Memo
+    ================================  =======  ====
+    01_logistic_regression_10_           ✓         
+    01_logistic_regression_9_            ✓         
+    02_binary_cnn_15_                    ✓         
+    02_binary_cnn_16_                    ✓         
+    06_auto_encoder_17_                  ✓         
+    06_auto_encoder_18_                  ✓         
+    10_deep_mlp_13_                      ✓         
+    10_deep_mlp_14_                      ✓         
+    11_deconvolution_11_                 ✓         
+    11_deconvolution_12_                 ✓         
+    12_residual_learning_19_             ✓         
+    12_residual_learning_20_             ✓         
+    LSTM_auto_encoder_23_                ✓         
+    LSTM_auto_encoder_24_                ✓         
+    LeNet_35_                            ✓         
+    LeNet_36_                            ✓         
+    bidirectional_elman_net_25_          ✓         
+    bidirectional_elman_net_26_          ✓         
+    binary_connect_mnist_LeNet_5_        ✓         
+    binary_connect_mnist_MLP_8_          ✓         
+    binary_net_mnist_LeNet_7_            X         
+    binary_net_mnist_MLP_4_              X         
+    binary_weight_mnist_MLP_6_           ✓         
+    elman_net_21_                        ✓         
+    elman_net_22_                        ✓         
+    elman_net_with_attention_33_         ✓         
+    elman_net_with_attention_34_         ✓         
+    gated_recurrent_unitGRU_31_          ✓         
+    gated_recurrent_unitGRU_32_          ✓         
+    long_short_term_memoryLSTM_29_       ✓         
+    long_short_term_memoryLSTM_30_       ✓         
+    mnist_dcgan_with_label_1_            X         
+    mnist_dcgan_with_label_2_            X         
+    mnist_vae_3_                         ✓         
+    semi_supervised_learning_VAT_37_     X         
+    stacked_GRU_27_                      ✓         
+    stacked_GRU_28_                      ✓         
+    ================================  =======  ====
+
+
+Tensorflow Lite Export Pretrained Models(nnp --> tflite)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Count 6/18
+ 
+
+    ======================  =======  ====
+             Name           Support  Memo
+    ======================  =======  ====
+    AlexNet_                   X         
+    DenseNet-161_2_570_        X         
+    GoogLeNet_4_142_           X         
+    MobileNet_1_86_            ✓         
+    NIN_                       X         
+    Resnet-101_4_348_          X         
+    Resnet-152_4_518_          X         
+    Resnet-18_3_71_            X         
+    Resnet-34_4_128_           X         
+    Resnet-50_4_178_           X         
+    ShuffleNet-0.5x_2_202_     X         
+    ShuffleNet_2_202_          X         
+    SqueezeNet-1.0_2_70_       ✓         
+    SqueezeNet-1.1_2_70_       ✓         
+    VGG-11_                    ✓         
+    VGG-13_                    ✓         
+    VGG-16_                    ✓         
+    Xception_                  X         
+    ======================  =======  ====
+
+
+Tensorflow Lite Export Example Models(nnp --> tflite)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Count 7/10
+ 
+
+    ==================  =======  ====
+           Name         Support  Memo
+    ==================  =======  ====
+    capsules_              ✓         
+    classification_        ✓         
+    cycle_gan_             ✓         
+    deeplabv3plus_         X         
+    meta_learning_         X         
+    pix2pix_               ✓         
+    siamese_embedding_     ✓         
+    wavenet_               X         
+    word_embedding_        ✓         
+    yolov2_                ✓         
+    ==================  =======  ====
+
 
 
 
@@ -322,61 +444,61 @@ Count 34/37
     ================================  =======  ===================================
                   Name                Support                 Memo                
     ================================  =======  ===================================
+    01_logistic_regression_10_           ✓                                        
+    01_logistic_regression_9_            ✓                                        
+    02_binary_cnn_15_                    ✓                                        
     02_binary_cnn_16_                    ✓                                        
+    06_auto_encoder_17_                  ✓                                        
+    06_auto_encoder_18_                  ✓                                        
+    10_deep_mlp_13_                      ✓                                        
+    10_deep_mlp_14_                      ✓                                        
+    11_deconvolution_11_                 ✓                                        
+    11_deconvolution_12_                 ✓                                        
+    12_residual_learning_19_             ✓                                        
+    12_residual_learning_20_             ✓                                        
+    LSTM_auto_encoder_23_                ✓                                        
+    LSTM_auto_encoder_24_                ✓                                        
+    LeNet_35_                            ✓                                        
+    LeNet_36_                            ✓                                        
+    bidirectional_elman_net_25_          ✓                                        
+    bidirectional_elman_net_26_          ✓                                        
+    binary_connect_mnist_LeNet_5_        ✓                                        
+    binary_connect_mnist_MLP_8_          ✓                                        
+    binary_net_mnist_LeNet_7_            ✓                                        
+    binary_net_mnist_MLP_4_              ✓                                        
+    binary_weight_mnist_MLP_6_           ✓                                        
+    elman_net_21_                        ✓                                        
+    elman_net_22_                        ✓                                        
+    elman_net_with_attention_33_         ✓                                        
+    elman_net_with_attention_34_         ✓                                        
+    gated_recurrent_unitGRU_31_          ✓                                        
+    gated_recurrent_unitGRU_32_          ✓                                        
     long_short_term_memoryLSTM_29_       ✓                                        
     long_short_term_memoryLSTM_30_       ✓                                        
-    10_deep_mlp_13_                      ✓                                        
-    01_logistic_regression_10_           ✓                                        
-    stacked_GRU_27_                      ✓                                        
-    gated_recurrent_unitGRU_31_          ✓                                        
-    LeNet_35_                            ✓                                        
-    mnist_vae_3_                         ✓                                        
-    binary_connect_mnist_MLP_8_          ✓                                        
-    12_residual_learning_20_             ✓                                        
-    elman_net_with_attention_34_         ✓                                        
-    11_deconvolution_11_                 ✓                                        
-    semi_supervised_learning_VAT_37_     X     Failed to compare inferring result.
-    binary_connect_mnist_LeNet_5_        ✓                                        
-    bidirectional_elman_net_25_          ✓                                        
-    elman_net_22_                        ✓                                        
-    bidirectional_elman_net_26_          ✓                                        
-    binary_net_mnist_MLP_4_              ✓                                        
-    06_auto_encoder_17_                  ✓                                        
-    stacked_GRU_28_                      ✓                                        
-    binary_weight_mnist_MLP_6_           ✓                                        
-    gated_recurrent_unitGRU_32_          ✓                                        
-    mnist_dcgan_with_label_2_            X     Failed to compare inferring result.
-    11_deconvolution_12_                 ✓                                        
     mnist_dcgan_with_label_1_            X     Failed to infer by nnabla.         
-    LSTM_auto_encoder_24_                ✓                                        
-    02_binary_cnn_15_                    ✓                                        
-    01_logistic_regression_9_            ✓                                        
-    12_residual_learning_19_             ✓                                        
-    LeNet_36_                            ✓                                        
-    elman_net_21_                        ✓                                        
-    10_deep_mlp_14_                      ✓                                        
-    LSTM_auto_encoder_23_                ✓                                        
-    elman_net_with_attention_33_         ✓                                        
-    binary_net_mnist_LeNet_7_            ✓                                        
-    06_auto_encoder_18_                  ✓                                        
+    mnist_dcgan_with_label_2_            X     Failed to compare inferring result.
+    mnist_vae_3_                         ✓                                        
+    semi_supervised_learning_VAT_37_     X     Failed to compare inferring result.
+    stacked_GRU_27_                      ✓                                        
+    stacked_GRU_28_                      ✓                                        
     ================================  =======  ===================================
 
 
 
 
 
-.. _resnet50_model: https://s3.amazonaws.com/download.onnx/models/opset_6/resnet50.tar.gz
-.. _zfnet512_model: https://s3.amazonaws.com/download.onnx/models/opset_6/zfnet512.tar.gz
-.. _inception_v2_model: https://s3.amazonaws.com/download.onnx/models/opset_6/inception_v2.tar.gz
-.. _inception_v1_model: https://s3.amazonaws.com/download.onnx/models/opset_6/inception_v1.tar.gz
-.. _bvlc_reference_caffenet_model: https://s3.amazonaws.com/download.onnx/models/opset_6/bvlc_reference_caffenet.tar.gz
-.. _bvlc_reference_rcnn_ilsvrc13_model: https://s3.amazonaws.com/download.onnx/models/opset_6/bvlc_reference_rcnn_ilsvrc13.tar.gz
-.. _squeezenet_model: https://s3.amazonaws.com/download.onnx/models/opset_6/squeezenet.tar.gz
-.. _bvlc_alexnet_model: https://s3.amazonaws.com/download.onnx/models/opset_6/bvlc_alexnet.tar.gz
-.. _shufflenet_model: https://s3.amazonaws.com/download.onnx/models/opset_6/shufflenet.tar.gz
-.. _vgg19_model: https://s3.amazonaws.com/download.onnx/models/opset_6/vgg19.tar.gz
-.. _densenet121_model: https://s3.amazonaws.com/download.onnx/models/opset_6/densenet121.tar.gz
-.. _bvlc_googlenet_model: https://s3.amazonaws.com/download.onnx/models/opset_6/bvlc_googlenet.tar.gz
+.. _resnet50_model: https://media.githubusercontent.com/media/onnx/models/master/vision/classification/resnet/model/resnet50-caffe2-v1-9.tar.gz
+.. _zfnet512_model: https://media.githubusercontent.com/media/onnx/models/master/vision/classification/zfnet-512/model/zfnet512-9.tar.gz
+.. _inception_v2_model: https://media.githubusercontent.com/media/onnx/models/master/vision/classification/inception_and_googlenet/inception_v2/model/inception-v2-9.tar.gz
+.. _inception_v1_model: https://media.githubusercontent.com/media/onnx/models/master/vision/classification/inception_and_googlenet/inception_v1/model/inception-v1-9.tar.gz
+.. _bvlc_reference_caffenet_model: https://media.githubusercontent.com/media/onnx/models/master/vision/classification/caffenet/model/caffenet-9.tar.gz
+.. _bvlc_reference_rcnn_ilsvrc13_model: https://media.githubusercontent.com/media/onnx/models/master/vision/classification/rcnn_ilsvrc13/model/rcnn-ilsvrc13-9.tar.gz
+.. _squeezenet_model: https://media.githubusercontent.com/media/onnx/models/master/vision/classification/squeezenet/model/squeezenet1.0-9.tar.gz
+.. _bvlc_alexnet_model: https://media.githubusercontent.com/media/onnx/models/master/vision/classification/alexnet/model/bvlcalexnet-9.tar.gz
+.. _shufflenet_model: https://media.githubusercontent.com/media/onnx/models/master/vision/classification/shufflenet/model/shufflenet-9.tar.gz
+.. _vgg19_model: https://media.githubusercontent.com/media/onnx/models/master/vision/classification/vgg/model/vgg19-caffe2-9.tar.gz
+.. _densenet121_model: https://media.githubusercontent.com/media/onnx/models/master/vision/classification/densenet-121/model/densenet-9.tar.gz
+.. _bvlc_googlenet_model: https://media.githubusercontent.com/media/onnx/models/master/vision/classification/inception_and_googlenet/googlenet/model/googlenet-9.tar.gz
 .. _02_binary_cnn_16: https://dl.sony.com/assets/sdcproj/tutorial/basics/02_binary_cnn.sdcproj
 .. _long_short_term_memoryLSTM_29: https://dl.sony.com/assets/sdcproj/tutorial/recurrent_neural_networks/long_short_term_memory(LSTM).sdcproj
 .. _long_short_term_memoryLSTM_30: https://dl.sony.com/assets/sdcproj/tutorial/recurrent_neural_networks/long_short_term_memory(LSTM).sdcproj
@@ -442,6 +564,12 @@ Count 34/37
 .. _cycle_gan: https://github.com/sony/nnabla-examples
 .. _capsules: https://github.com/sony/nnabla-examples
 .. _wavenet: https://github.com/sony/nnabla-examples
+.. _ResNet50: https://notfound
+.. _AlexNet: https://notfound
+.. _GoogLeNet: https://notfound
+.. _LeNet_5: https://notfound
+.. _VGG16: https://notfound
+.. _ZFNet: https://notfound
 .. _fc-layers_frozen: https://github.com/onnx/tensorflow-onnx/blob/master/tests/models/fc-layers/frozen.pb
 .. _ae0_frozen: https://github.com/onnx/tensorflow-onnx/blob/master/tests/models/ae0/frozen.pb
 .. _mobilenet_v1_0.75_192: https://storage.googleapis.com/download.tensorflow.org/models/mobilenet_v1_0.75_192_frozen.tgz

@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 
 import pytest
 import numpy as np
+import nnabla as nn
 import nnabla.functions as F
 from nbla_test_utils import list_context
 
@@ -36,14 +37,22 @@ def ref_transpose(x, axes):
     ((4, 2, 5, 2, 3), (3, 0, 1, 2, 4)),
     ((4, 2, 3, 2, 3, 3), (5, 3, 0, 1, 2, 4)),
     ((4, 4, 4, 4, 4), (4, 3, 2, 1, 0)),
+    ((7, 16, 2, 2, 224, 448), (0, 1, 4, 2, 5, 3)),
 ])
 def test_transpose_forward_backward(seed, inshape, axes, ctx, func_name):
     from nbla_test_utils import function_tester
     rng = np.random.RandomState(seed)
-    # Input
-    inputs = [rng.randn(*inshape).astype(np.float32)]
-    function_tester(rng, F.transpose, ref_transpose, inputs, func_args=[
-                    axes], ctx=ctx, func_name=func_name, atol_f=1e-6, atol_b=1e-2)
+    if np.product(inshape) > 1000000:
+        with nn.context_scope(ctx):
+            x = nn.Variable(inshape)
+            y = F.transpose(x, axes)
+            y.forward()
+            assert y.d.shape == np.ndarray(inshape).transpose(axes).shape
+    else:
+        inputs = [rng.randn(*inshape).astype(np.float32)]
+        function_tester(rng, F.transpose, ref_transpose, inputs,
+                        func_args=[axes], ctx=ctx, func_name=func_name,
+                        atol_f=1e-6, atol_b=1e-2)
 
 
 @pytest.mark.parametrize("ctx, func_name", ctxs)
@@ -56,11 +65,22 @@ def test_transpose_forward_backward(seed, inshape, axes, ctx, func_name):
     ((4, 4, 4, 4, 4), (4, 3, 2, 1, 0)),
 ])
 def test_transpose_double_backward(seed, inshape, axes, ctx, func_name):
-    from nbla_test_utils import backward_function_tester
+    from nbla_test_utils import backward_function_tester, grad_function_forward_function_output
+    from nnabla.backward_function.transpose import TransposeDataGrad
     rng = np.random.RandomState(seed)
     # Input
     inputs = [rng.randn(*inshape).astype(np.float32)]
-    # TODO: backward_ref
-    backward_function_tester(rng, F.transpose, ref_transpose, inputs,
-                             func_args=[axes], ctx=ctx, func_name=func_name,
-                             atol_f=1e-6, atol_b=1e-2, atol_accum=1e-2, dstep=1e-3)
+    func_args = [axes]
+    # 2rd-order
+    backward_function_tester(rng, F.transpose, inputs,
+                             func_args=func_args, ctx=ctx)
+    # 3rd-order
+    df, y = grad_function_forward_function_output(TransposeDataGrad,
+                                                  F.transpose,
+                                                  ctx, inputs,
+                                                  *func_args)
+    df.xshape = inputs[0].shape
+    ginputs = [rng.randn(*y.shape)]
+    backward_function_tester(rng, df,
+                             ginputs, func_args=[],
+                             ctx=ctx, non_accum_check=True)

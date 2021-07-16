@@ -1,4 +1,4 @@
-# Copyright (c) 2019 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 # limitations under the License.
 
 all: main.cpp
-	$(CXX) -std=c++11 -O -o mnist_training main.cpp -lnnabla -lnbla_utils -lz
+	$(CXX) -std=c++11 -O -o mnist_training main.cpp -lnnabla -lnnabla_utils -lz
 
 clean:
 	rm -f mnist_training

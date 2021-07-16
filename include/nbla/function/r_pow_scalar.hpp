@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -41,6 +42,6 @@ Outputs:
  */
 NBLA_DEFINE_TRANSFORM_UNARY_1(RPowScalar, std::pow((T)a0, x),
                               dy *std::pow((T)a0, x) * std::log((T)a0), false,
-                              double);
+                              true, double);
 }
 #endif

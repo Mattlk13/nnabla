@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ class DynamicLossScalingUpdater(object):
         accum_grad (:obj:`int`): Number of accumulation of gradients. Update method of the `solver` is called after the `accum_grad` number of the forward and backward is called.
         weight_decay (:obj:`float`): Decay constant. Default is `None`, not applying the weight decay.
         comm (:obj:`nnabla.communicators.Communicator`): Communicator when to do distributed training. Default is :obj:`None`.
-        grads (:obj:`list` of :obj:`nnabla._nd_array.NdArray`): The list of gradients to be exchanged when to do distributed training. Default is the empty :obj:`list`.
+        grads (:obj:`list` of :obj:`nnabla.NdArray`): The list of gradients to be exchanged when to do distributed training. Default is the empty :obj:`list`.
 
     Attributes:
         solver (:obj:`nnabla.solvers.Solver`): Solver object. E.g., Momentum or Adam.
@@ -40,7 +40,7 @@ class DynamicLossScalingUpdater(object):
         accum_grad (:obj:`int`): Number of accumulation of gradients. Update method of the `solver` is called after the `accum_grad` number of the forward and backward is called.
         weight_decay (:obj:`float`): Decay constant. Default is `None`, not applying the weight decay.
         comm (:obj:`nnabla.communicators.Communicator`): Communicator when to do distributed training.
-        grads (:obj:`list` of :obj:`nnabla._nd_array.NdArray`): The list of gradients to be exchanged when to do distributed training.
+        grads (:obj:`list` of :obj:`nnabla.NdArray`): The list of gradients to be exchanged when to do distributed training.
 
     Example:
 

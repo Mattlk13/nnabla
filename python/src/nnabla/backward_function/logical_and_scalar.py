@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,37 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import nnabla as nn
-from .backward_function import BackwardFunction
+
+import nnabla.functions as F
+from .utils import no_grad
 
 
-class LogicalAndScalarBackward(BackwardFunction):
+def logical_and_scalar_backward(inputs, val):
+    """
+    Args:
+      inputs (list of nn.Variable): Incomming grads/inputs to/of the forward function.
+      kwargs (dict of arguments): Dictionary of the corresponding function arguments.
 
-    @property
-    def name(self):
-        return 'LogicalAndScalarBackward'
-
-    def _create_forward_inputs_and_outputs(self, inputs, outputs):
-        # Inputs on the forward graph
-        inputs_fwd = []
-        for i in range(self._num_inputs_fwd):
-            need_grad = self.forward_func.inputs[i].need_grad
-            v = nn.Variable(inputs[i].shape, need_grad=need_grad)
-            v.data = inputs[i].data
-            v.grad = outputs[i].data
-            inputs_fwd += [v]
-        # Outputs on the forward graph
-        outputs_fwd = []
-        for i in range(self._num_outputs_fwd):
-            inp = inputs[self._num_inputs_fwd + i]
-            v = nn.Variable(inp.shape)
-            v.grad = inp.data
-            outputs_fwd += [v]
-        return inputs_fwd, outputs_fwd
-
-    def backward_impl(self, inputs, outputs, prop_down, accum):
-        # inputs: [inputs_fwd_graph] + [inputs_bwd_graph] or
-        # [inputs_fwd_graph] + [outputs_fwd_graph] + [inputs_bwd_graph]
-
-        raise NotImplementedError(
-            "The backward method of LogicalAndScalarBackward class is not implemented.")
+    Return:
+      list of Variable: Return the gradients wrt inputs of the corresponding function.
+    """
+    return [None] * len(inputs)

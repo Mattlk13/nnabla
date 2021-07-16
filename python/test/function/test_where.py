@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,3 +34,19 @@ def test_where_forward_backward(seed, ctx, func_name):
     function_tester(rng, F.where, np.where, inputs,
                     backward=[False, True, True],
                     ctx=ctx, func_name=func_name)
+
+
+@pytest.mark.parametrize("ctx, func_name", ctxs)
+@pytest.mark.parametrize("seed", [313])
+def test_where_double_backward(seed, ctx, func_name):
+    from nbla_test_utils import backward_function_tester
+    rng = np.random.RandomState(seed)
+    inshape = (2, 2)
+    inputs = [
+        (rng.rand(*inshape) > 0.5).astype(np.float32),
+        rng.randn(*inshape),
+        rng.randn(*inshape),
+    ]
+    backward_function_tester(rng, F.where, inputs,
+                             backward=[False, True, True], dstep=1e3,
+                             ctx=ctx)

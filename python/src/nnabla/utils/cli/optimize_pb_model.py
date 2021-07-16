@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,16 +13,17 @@
 # limitations under the License.
 
 import os
+import json
 
 
 def optimize_pb_model_command(args):
     try:
         import tensorflow as tf
         from tensorflow.python.platform import gfile
-        from nnabla.utils.converter.tensorflow.refine_parser import RefineParser
-        from nnabla.utils.converter.tensorflow.refine_graph import RefineGraph
-    except:
-        print("Need to install tensorflow.")
+        from nnabla.utils.converter.tensorflow.common import OptimizePb
+    except ImportError:
+        raise ImportError(
+            'nnabla_converter python package is not found, install nnabla_converter package with "pip install nnabla_converter"')
 
     input_pb_file = args.input_pb_file[0]
     output_pb_file = args.output_pb_file[0]
@@ -32,12 +33,11 @@ def optimize_pb_model_command(args):
     with gfile.GFile(input_pb_file, 'rb') as f:
         graph_def = tf.compat.v1.GraphDef()
         graph_def.ParseFromString(f.read())
-        refine_graph = RefineGraph(graph_def)
-        refine_parser = RefineParser(refine_graph)
-        refine_graph.prepare()
-        refine_parser.parse()
-
-    refine_graph.save_back(output_pb_file)
+        optimize = OptimizePb(graph_def).execute()
+        optimize.export_to_file(output_pb_file)
+        doc_file = output_pb_file.replace('.', '_') + '.json'
+        with open(doc_file, 'w') as f:
+            json.dump(optimize.get_optimization_rate(), f)
 
 
 def add_optimize_pb_model_command(subparsers):
